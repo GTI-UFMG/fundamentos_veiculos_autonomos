@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
-# using coppelia
+# -*- coding: utf-8 -*-
+# Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
+# Fundamentos de Veículos Autônomos - 2023/2
+# Professores: Armando Alves Neto e Leonardo A. Mozelli
+# Cursos: Engenharia de Controle e Automação
+# DELT – Escola de Engenharia
+# Universidade Federal de Minas Gerais
+
 import sys
 sys.path.append("coppelia/")
 import sim
@@ -11,8 +18,8 @@ import numpy as np
 ########################################
 # parametros do carro
 CAR = {
-		'VELMAX'		: 1.0,		# m/s
-		'STEERMAX'		: 30.0,		# deg
+		'VELMAX'		: 5.0,		# m/s
+		'STEERMAX'		: 20.0,		# deg
 	}
 
 PORT = 19997	# communication port
@@ -40,7 +47,7 @@ class CarCoppelia:
 		self.clientID = sim.simxStart('127.0.0.1', PORT, True, True, 5000, 10)
 		if self.clientID == -1:
 			print ('Failed connecting to remote API server')
-		
+
 		# car
 		err, self.robot = sim.simxGetObjectHandle(self.clientID, 'Car', sim.simx_opmode_oneshot_wait)
 		if err != sim.simx_return_ok:
@@ -97,7 +104,6 @@ class CarCoppelia:
 	# retorna posicao do carro
 	# -- Recommended operation modes for this function are simx_opmode_streaming (the first call) and simx_opmode_buffer (the following calls)
 	def getPos(self):
-		return np.array((0,0))
 		while True:
 			err, pos = sim.simxGetObjectPosition(self.clientID, self.robot, -1, sim.simx_opmode_streaming + 10)
 			if (err == sim.simx_return_ok):
@@ -106,24 +112,20 @@ class CarCoppelia:
 	########################################
 	# retorna yaw
 	def getYaw(self):
-		return 0.0
 		while True:
 			err, ang = sim.simxGetObjectOrientation(self.clientID, self.robot, -1, sim.simx_opmode_streaming + 10)
 			if (err == sim.simx_return_ok):
+				#print(np.rad2deg(ang))
 				return ang[2] + np.pi/2.0
 		
 	########################################
 	# retorna velocidades linear e angular
 	def getVel(self):
-		
-		return 0,0
-		
 		while True:
 			err, lin, ang = sim.simxGetObjectVelocity(self.clientID, self.robot, sim.simx_opmode_streaming + 10)
 			if (err == sim.simx_return_ok):
-				v = lin[0]*np.cos(self.th) + lin[1]*np.sin(self.th)
-				return  v, ang[2] #lin, ang
-	
+				v = np.linalg.norm(lin)
+				return  v, ang[2]
 	
 	########################################
 	# seta torque do veiculo
