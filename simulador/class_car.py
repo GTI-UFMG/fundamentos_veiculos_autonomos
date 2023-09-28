@@ -12,6 +12,7 @@ sys.path.append("coppelia/")
 import sim
 import time
 import numpy as np
+import math
 
 ########################################
 # GLOBAIS
@@ -35,6 +36,12 @@ class CarCoppelia:
 		# tempo
 		self.t = 0.0
 		
+		# velocidade de comando
+		self.vref = 0.0
+		
+		# tempo de amostragem
+		self.dt = 0.0
+		
 		# inicia conexao
 		self.initCoppeliaSim()
 		
@@ -52,6 +59,15 @@ class CarCoppelia:
 		err, self.robot = sim.simxGetObjectHandle(self.clientID, 'Car', sim.simx_opmode_oneshot_wait)
 		if err != sim.simx_return_ok:
 			print ('Remote API function call returned with error code (robot): ', err)
+			
+		# motors
+		err, self.motorL = sim.simxGetObjectHandle(self.clientID, 'joint_motor_L', sim.simx_opmode_oneshot_wait)
+		if err != sim.simx_return_ok:
+			print ('Remote API function call returned with error code (motorL): ', err)
+			
+		err, self.motorR = sim.simxGetObjectHandle(self.clientID, 'joint_motor_R', sim.simx_opmode_oneshot_wait)
+		if err != sim.simx_return_ok:
+			print ('Remote API function call returned with error code (motorR): ', err)
 		
 		# camera
 		err, self.cam = sim.simxGetObjectHandle(self.clientID, "Vision_sensor", sim.simx_opmode_oneshot_wait)
@@ -89,8 +105,14 @@ class CarCoppelia:
 	########################################
 	def step(self):
 		
+		# tempo anterior
+		t0 = self.t
+		
 		# condicoes iniciais
 		self.getStates()
+		
+		# atualiza amostragem
+		self.dt = self.t - t0
 			
 	########################################
 	# retorna tempo da simulacao no Coppelia
@@ -113,10 +135,41 @@ class CarCoppelia:
 	# retorna yaw
 	def getYaw(self):
 		while True:
-			err, ang = sim.simxGetObjectOrientation(self.clientID, self.robot, -1, sim.simx_opmode_streaming + 10)
+			err, q = sim.simxGetObjectQuaternion(self.clientID, self.robot, -1, sim.simx_opmode_streaming + 10)
 			if (err == sim.simx_return_ok):
-				#print(np.rad2deg(ang))
-				return ang[2] + np.pi/2.0
+				roll, pitch, yaw = self.quaternion_to_euler(q)
+				#print(np.rad2deg([roll, pitch, yaw]))
+				return yaw
+	
+	########################################
+	def quaternion_to_euler(self, q):
+		# Extract quaternion components
+		w, x, y, z = q
+
+		# Calculate roll (x-axis rotation)
+		sinr_cosp = 2.0 * (w * x + y * z)
+		cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
+		roll = np.arctan2(sinr_cosp, cosr_cosp)
+
+		# Calculate pitch (y-axis rotation)
+		sinp = 2.0 * (w * y - z * x)
+		if np.abs(sinp) >= 1:
+			pitch = np.copysign(np.pi / 2, sinp)  # Use 90 degrees if out of range
+		else:
+			pitch = np.arcsin(sinp)
+
+		# Calculate yaw (z-axis rotation)
+		siny_cosp = 2.0 * (w * z + x * y)
+		cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+		yaw = np.arctan2(siny_cosp, cosy_cosp)
+		
+		yaw = -yaw - np.pi/2
+		while yaw < 0.0:
+			yaw += 2.0*np.pi
+		while yaw > 2.0*np.pi:
+			yaw -= 2.0*np.pi
+
+		return roll, pitch, yaw
 		
 	########################################
 	# retorna velocidades linear e angular
@@ -136,9 +189,22 @@ class CarCoppelia:
 		v *= 1000.0
 		
 		while True:
-			err,_,_,_,_=sim.simxCallScriptFunction(self.clientID,'control_truck',sim.sim_scripttype_childscript,'setVel',[],[v],[],bytearray(),sim.simx_opmode_oneshot_wait)
+			err,_,_,_,_=sim.simxCallScriptFunction(self.clientID,'control_truck',sim.sim_scripttype_childscript,'setVel',[],[v],[],bytearray(), sim.simx_opmode_oneshot_wait)
 			if (err == sim.simx_return_ok):
 				break
+				
+	########################################
+	# seta torque dos motores do veiculo
+	def setU(self, u):
+		while True:
+			err = sim.simxSetJointForce(self.clientID, self.motorL, u, sim.simx_opmode_oneshot_wait)
+			if (err == sim.simx_return_ok):
+				break
+		while True:
+			err = sim.simxSetJointForce(self.clientID, self.motorR, u, sim.simx_opmode_oneshot_wait)
+			if (err == sim.simx_return_ok):
+				break
+		
 								
 	########################################
 	# seta steer do veiculo
