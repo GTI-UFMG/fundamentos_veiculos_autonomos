@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# -*- coding: utf-8 -*-
 # Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
 # Fundamentos de Veículos Autônomos - 2023/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
@@ -21,10 +20,12 @@ import math
 CAR = {
 		'VELMAX'	: 5.0,		# m/s
 		'ACCELMAX'	: 0.5, # m/s^2
-		'STEERMAX'	: 20.0,		# deg
+		'STEERMAX'	: np.deg2rad(20.0),		# deg
 	}
 
 PORT = 19997	# communication port
+
+ALFA = 0.3
 
 ########################################
 # Manta
@@ -74,7 +75,7 @@ class CarCoppelia:
 		err, self.cam = sim.simxGetObjectHandle(self.clientID, "Vision_sensor", sim.simx_opmode_oneshot_wait)
 		if err != sim.simx_return_ok:
 			print ('Remote API function call returned with error code: ', err)
-			
+		
 		print('Car ok!')
 	
 	########################################
@@ -96,6 +97,9 @@ class CarCoppelia:
 		
 		# tempo inicial
 		self.tinit = self.getTime()
+		
+		# sicronizado com o simulador
+		sim.simxSynchronous(self.clientID, True)
 	
 	########################################
 	# termina a missao
@@ -105,6 +109,8 @@ class CarCoppelia:
 	
 	########################################
 	def step(self):
+		
+		sim.simxSynchronousTrigger(self.clientID)
 		
 		# tempo anterior
 		t0 = self.t
@@ -140,6 +146,11 @@ class CarCoppelia:
 			if (err == sim.simx_return_ok):
 				roll, pitch, yaw = self.quaternion_to_euler(q)
 				#print(np.rad2deg([roll, pitch, yaw]))
+				
+				try:
+					yaw = ALFA*yaw + (1.0-ALFA)*self.th
+				except: None
+				
 				return yaw
 	
 	########################################
@@ -178,8 +189,15 @@ class CarCoppelia:
 		while True:
 			err, lin, ang = sim.simxGetObjectVelocity(self.clientID, self.robot, sim.simx_opmode_streaming + 10)
 			if (err == sim.simx_return_ok):
+				#print(lin)
 				v = np.linalg.norm(lin)
-				return  v, ang[2]
+				w = ang[2]
+				
+				try:
+					w = ALFA*w + (1.0-ALFA)*self.w
+				except: None
+				
+				return  v, w
 	
 	########################################
 	# seta torque do veiculo
