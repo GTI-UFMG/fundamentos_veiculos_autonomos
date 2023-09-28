@@ -19,8 +19,9 @@ import math
 ########################################
 # parametros do carro
 CAR = {
-		'VELMAX'		: 5.0,		# m/s
-		'STEERMAX'		: 20.0,		# deg
+		'VELMAX'	: 5.0,		# m/s
+		'ACCELMAX'	: 0.5, # m/s^2
+		'STEERMAX'	: 20.0,		# deg
 	}
 
 PORT = 19997	# communication port
@@ -196,6 +197,9 @@ class CarCoppelia:
 	########################################
 	# seta torque dos motores do veiculo
 	def setU(self, u):
+		
+		u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
+		
 		while True:
 			err = sim.simxSetJointForce(self.clientID, self.motorL, u, sim.simx_opmode_oneshot_wait)
 			if (err == sim.simx_return_ok):

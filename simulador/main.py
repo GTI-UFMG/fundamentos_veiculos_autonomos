@@ -26,7 +26,7 @@ while car.t < 50.0:
 	
 	# atua
 	car.setSteer(20.0*np.sin(0.2*car.getTime()))
-	car.setVel(np.abs(np.sin(0.5*car.getTime())))
+	car.setU(np.abs(np.sin(0.01*car.getTime())))
 	
 	# lê e exibe camera
 	frame = car.getImage()
