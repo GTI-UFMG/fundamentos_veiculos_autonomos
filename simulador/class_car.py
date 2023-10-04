@@ -5,6 +5,7 @@
 # Cursos: Engenharia de Controle e Automação
 # DELT – Escola de Engenharia
 # Universidade Federal de Minas Gerais
+########################################
 
 import sys
 sys.path.append("coppelia/")
@@ -40,6 +41,9 @@ class CarCoppelia:
 		
 		# velocidade de comando
 		self.vref = 0.0
+		
+		# comando de aceleracao
+		self.u = 0.0
 		
 		# tempo de amostragem
 		self.dt = 0.0
@@ -201,33 +205,32 @@ class CarCoppelia:
 	
 	########################################
 	# seta torque do veiculo
-	def setVel(self, v):
+	def setVel(self, vref):
 		
-		v = np.clip(v, 0.0, CAR['VELMAX'])
-		v = v/CAR['VELMAX']
-		v *= 1000.0
+		Kp = 0.2
+		Kd = 0.1
+		# referencia de velocidade
+		self.vref = np.clip(vref, 0.0, CAR['VELMAX'])
 		
-		while True:
-			err,_,_,_,_=sim.simxCallScriptFunction(self.clientID,'control_truck',sim.sim_scripttype_childscript,'setVel',[],[v],[],bytearray(), sim.simx_opmode_oneshot_wait)
-			if (err == sim.simx_return_ok):
-				break
+		# controle de velocidade
+		u = Kp*(self.vref - self.v) + Kd*(0.0 - self.u)
+		self.setU(u)
 				
 	########################################
 	# seta torque dos motores do veiculo
 	def setU(self, u):
 		
-		u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
+		self.u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
 		while True:
-			err = sim.simxSetJointForce(self.clientID, self.motorL, u, sim.simx_opmode_oneshot_wait)
+			err = sim.simxSetJointForce(self.clientID, self.motorL, self.u, sim.simx_opmode_oneshot_wait)
 			if (err == sim.simx_return_ok):
 				break
 		while True:
-			err = sim.simxSetJointForce(self.clientID, self.motorR, u, sim.simx_opmode_oneshot_wait)
+			err = sim.simxSetJointForce(self.clientID, self.motorR, self.u, sim.simx_opmode_oneshot_wait)
 			if (err == sim.simx_return_ok):
 				break
 		
-								
 	########################################
 	# seta steer do veiculo
 	def setSteer(self, st):	
@@ -269,4 +272,5 @@ class CarCoppelia:
 	########################################
 	# termina a classe
 	def __exit__(self):
+		self.stopMission()
 		self.__del__()

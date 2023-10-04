@@ -5,8 +5,8 @@
 # Cursos: Engenharia de Controle e Automação
 # DELT – Escola de Engenharia
 # Universidade Federal de Minas Gerais
-
 ########################################
+
 import class_car as cp
 import numpy as np
 import cv2
