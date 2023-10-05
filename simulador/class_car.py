@@ -20,7 +20,7 @@ import math
 # parametros do carro
 CAR = {
 		'VELMAX'	: 5.0,		# m/s
-		'ACCELMAX'	: 0.5, # m/s^2
+		'ACCELMAX'	: 0.25, # m/s^2
 		'STEERMAX'	: np.deg2rad(20.0),		# deg
 	}
 
@@ -193,7 +193,6 @@ class CarCoppelia:
 		while True:
 			err, lin, ang = sim.simxGetObjectVelocity(self.clientID, self.robot, sim.simx_opmode_streaming + 10)
 			if (err == sim.simx_return_ok):
-				#print(lin)
 				v = np.linalg.norm(lin)
 				w = ang[2]
 				
@@ -207,7 +206,7 @@ class CarCoppelia:
 	# seta torque do veiculo
 	def setVel(self, vref):
 		
-		Kp = 0.2
+		Kp = 1.0
 		Kd = 0.1
 		# referencia de velocidade
 		self.vref = np.clip(vref, 0.0, CAR['VELMAX'])
@@ -220,16 +219,22 @@ class CarCoppelia:
 	# seta torque dos motores do veiculo
 	def setU(self, u):
 		
+		# limita aceleracao
 		self.u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
-		while True:
-			err = sim.simxSetJointForce(self.clientID, self.motorL, self.u, sim.simx_opmode_oneshot_wait)
-			if (err == sim.simx_return_ok):
-				break
-		while True:
-			err = sim.simxSetJointForce(self.clientID, self.motorR, self.u, sim.simx_opmode_oneshot_wait)
-			if (err == sim.simx_return_ok):
-				break
+		# atua
+		for m in [self.motorL, self.motorR]:
+			# Set the velocity to some large number with the correct sign, because v-rep is weird like that
+			while True:
+				err = sim.simxSetJointTargetVelocity(self.clientID, m, np.sign(u)*CAR['VELMAX'], sim.simx_opmode_oneshot_wait)
+				if (err == sim.simx_return_ok):
+					break
+					
+			# Apply the desired torques to the joints
+			while True:
+				err = sim.simxSetJointForce(self.clientID, m, np.abs(self.u), sim.simx_opmode_oneshot_wait)
+				if (err == sim.simx_return_ok):
+					break
 		
 	########################################
 	# seta steer do veiculo
