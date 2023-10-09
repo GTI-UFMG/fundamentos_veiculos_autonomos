@@ -9,32 +9,40 @@
 
 import sys
 sys.path.append("coppelia/")
+sys.path.append("coppeliasim_zmqremoteapi/")
+
 import sim
-import time
+from coppeliasim_zmqremoteapi_client import *
 import numpy as np
-import math
+
+#MODE = 'zmq' # legacy or zmq 
 
 ########################################
 # GLOBAIS
 ########################################
 # parametros do carro
 CAR = {
-		'VELMAX'	: 5.0,		# m/s
-		'ACCELMAX'	: 0.25, # m/s^2
-		'STEERMAX'	: np.deg2rad(20.0),		# deg
+		'VELMAX'	: 5.0,				# m/s
+		'ACCELMAX'	: 0.25, 			# m/s^2
+		'STEERMAX'	: np.deg2rad(20.0),	# deg
 	}
 
-PORT = 19997	# communication port
-
+# parametro de filtragem
 ALFA = 0.3
 
+# communication port
+PORT = 19997
+
 ########################################
-# Manta
+# Carrinho
 ########################################
 class CarCoppelia:	
 	########################################
 	# construtor
-	def __init__(self):
+	def __init__(self, mode = 'zmq'): # mode = legacy or zmq
+		
+		# modo de comunicacao
+		self.mode = mode
 		
 		# tempo
 		self.t = 0.0
@@ -55,31 +63,59 @@ class CarCoppelia:
 	# inicializa interacao com o Coppelia -- Connect to CoppeliaSim
 	def initCoppeliaSim(self):
 		
-		# o primeiro cria o cliente
-		sim.simxFinish(-1) # just in case, close all opened connections
-		self.clientID = sim.simxStart('127.0.0.1', PORT, True, True, 5000, 10)
-		if self.clientID == -1:
-			print ('Failed connecting to remote API server')
+		#-----------------------------------
+		if self.mode == 'legacy':
+			# o primeiro cria o cliente
+			sim.simxFinish(-1) # just in case, close all opened connections
+			self.clientID = sim.simxStart('127.0.0.1', PORT, True, True, 5000, 10)
+			if self.clientID == -1:
+				print ('Failed connecting to remote API server')
 
-		# car
-		err, self.robot = sim.simxGetObjectHandle(self.clientID, 'Car', sim.simx_opmode_oneshot_wait)
-		if err != sim.simx_return_ok:
-			print ('Remote API function call returned with error code (robot): ', err)
+			# car
+			err, self.robot = sim.simxGetObjectHandle(self.clientID, 'Car', sim.simx_opmode_oneshot_wait)
+			if err != sim.simx_return_ok:
+				print ('Remote API function call returned with error code (robot): ', err)
+				
+			# motors
+			err, self.motorL = sim.simxGetObjectHandle(self.clientID, 'joint_motor_L', sim.simx_opmode_oneshot_wait)
+			if err != sim.simx_return_ok:
+				print ('Remote API function call returned with error code (motorL): ', err)
+				
+			err, self.motorR = sim.simxGetObjectHandle(self.clientID, 'joint_motor_R', sim.simx_opmode_oneshot_wait)
+			if err != sim.simx_return_ok:
+				print ('Remote API function call returned with error code (motorR): ', err)
 			
-		# motors
-		err, self.motorL = sim.simxGetObjectHandle(self.clientID, 'joint_motor_L', sim.simx_opmode_oneshot_wait)
-		if err != sim.simx_return_ok:
-			print ('Remote API function call returned with error code (motorL): ', err)
+			# camera
+			err, self.cam = sim.simxGetObjectHandle(self.clientID, "Vision_sensor", sim.simx_opmode_oneshot_wait)
+			if err != sim.simx_return_ok:
+				print ('Remote API function call returned with error code: ', err)
+
+		#-----------------------------------
+		if self.mode == 'zmq':
 			
-		err, self.motorR = sim.simxGetObjectHandle(self.clientID, 'joint_motor_R', sim.simx_opmode_oneshot_wait)
-		if err != sim.simx_return_ok:
-			print ('Remote API function call returned with error code (motorR): ', err)
-		
-		# camera
-		err, self.cam = sim.simxGetObjectHandle(self.clientID, "Vision_sensor", sim.simx_opmode_oneshot_wait)
-		if err != sim.simx_return_ok:
-			print ('Remote API function call returned with error code: ', err)
-		
+			# Cria o cliente
+			self.client = RemoteAPIClient()
+			self.sim = self.client.getObject('sim')
+					
+			# car
+			self.robot = self.sim.getObject('/Car')
+			if self.robot == -1:
+				print ('Remote API function call returned with error code (robot): ', -1)
+				
+			# motors
+			self.motorL = self.sim.getObject('/joint_motor_L')
+			if self.motorL == -1:
+				print ('Remote API function call returned with error code (motorL): ', -1)
+				
+			self.motorR = self.sim.getObject('/joint_motor_R')
+			if self.motorR == -1:
+				print ('Remote API function call returned with error code (motorR): ', -1)
+			
+			# camera
+			self.cam = self.sim.getObject('/Vision_sensor')
+			if self.cam == -1:
+				print ('Remote API function call returned with error code: ', -1)
+			
 		print('Car ok!')
 	
 	########################################
@@ -95,26 +131,49 @@ class CarCoppelia:
 	########################################
 	# comeca a missao
 	def startMission(self):
-	
-		# comeca a simulacao
-		sim.simxStartSimulation(self.clientID, sim.simx_opmode_blocking)
 		
+		#-----------------------------------
+		if self.mode == 'legacy':
+			# comeca a simulacao
+			sim.simxStartSimulation(self.clientID, sim.simx_opmode_blocking)
+			
+			# sicronizado com o simulador
+			sim.simxSynchronous(self.clientID, True)
+		
+		#-----------------------------------
+		if self.mode == 'zmq':
+			# comeca a simulacao
+			self.sim.startSimulation()
+			
+			# sicronizado com o simulador
+			self.client.setStepping(True)
+		
+		#-----------------------------------
 		# tempo inicial
 		self.tinit = self.getTime()
 		
-		# sicronizado com o simulador
-		sim.simxSynchronous(self.clientID, True)
-	
 	########################################
 	# termina a missao
-	def stopMission(self):		
-		# termina a simulacao
-		sim.simxStopSimulation(self.clientID, sim.simx_opmode_blocking)
+	def stopMission(self):	
+		#-----------------------------------
+		if self.mode == 'legacy':
+			# comeca a simulacao
+			sim.simxStopSimulation(self.clientID, sim.simx_opmode_blocking)
+		
+		#-----------------------------------
+		if self.mode == 'zmq':
+			self.sim.stopSimulation()
 	
 	########################################
 	def step(self):
 		
-		sim.simxSynchronousTrigger(self.clientID)
+		#-----------------------------------
+		if self.mode == 'legacy':
+			sim.simxSynchronousTrigger(self.clientID)
+		
+		#-----------------------------------
+		if self.mode == 'zmq':
+			self.client.step()
 		
 		# tempo anterior
 		t0 = self.t
@@ -129,34 +188,59 @@ class CarCoppelia:
 	# retorna tempo da simulacao no Coppelia
 	def getTime(self):
 		while True:
-			err, t = sim.simxGetFloatSignal(self.clientID, 'mySimulationTime', sim.simx_opmode_streaming + 10)
-			if (err == sim.simx_return_ok):
-				return t
-    
+			#-----------------------------------
+			if self.mode == 'legacy':
+				err, t = sim.simxGetFloatSignal(self.clientID, 'mySimulationTime', sim.simx_opmode_streaming + 10)
+				if (err == sim.simx_return_ok):
+					return t
+			
+			#-----------------------------------
+			if self.mode == 'zmq':
+				t = self.sim.getSimulationTime()
+				if (t != -1.0): # Em caso de não retornar um erro
+					return t
+					
 	########################################
 	# retorna posicao do carro
-	# -- Recommended operation modes for this function are simx_opmode_streaming (the first call) and simx_opmode_buffer (the following calls)
 	def getPos(self):
 		while True:
-			err, pos = sim.simxGetObjectPosition(self.clientID, self.robot, -1, sim.simx_opmode_streaming + 10)
-			if (err == sim.simx_return_ok):
-				return np.array((pos[0], pos[1]))
+			#-----------------------------------
+			if self.mode == 'legacy':
+				err, pos = sim.simxGetObjectPosition(self.clientID, self.robot, -1, sim.simx_opmode_streaming + 10)
+				if (err == sim.simx_return_ok):
+					return np.array((pos[0], pos[1]))
+			
+			#-----------------------------------	
+			if self.mode == 'zmq':
+				pos = self.sim.getObjectPosition(self.robot, -1)
+				if (pos != -1):
+					return np.array((pos[0], pos[1]))			
 				
 	########################################
 	# retorna yaw
 	def getYaw(self):
 		while True:
-			err, q = sim.simxGetObjectQuaternion(self.clientID, self.robot, -1, sim.simx_opmode_streaming + 10)
-			if (err == sim.simx_return_ok):
-				roll, pitch, yaw = self.quaternion_to_euler(q)
-				#print(np.rad2deg([roll, pitch, yaw]))
-				
-				try:
-					yaw = ALFA*yaw + (1.0-ALFA)*self.th
-				except: None
-				
-				return yaw
-	
+			#-----------------------------------
+			if self.mode == 'legacy':
+				err, q = sim.simxGetObjectQuaternion(self.clientID, self.robot, -1, sim.simx_opmode_streaming + 10)
+				if (err == sim.simx_return_ok):
+					roll, pitch, yaw = self.quaternion_to_euler(q)
+					break
+			
+			#-----------------------------------	
+			if self.mode == 'zmq':
+				q = self.sim.getObjectQuaternion(self.robot,-1)
+				if (q != -1):
+					roll, pitch, yaw = self.quaternion_to_euler(q)
+					break
+		
+		#-----------------------------------
+		try:
+			yaw = ALFA*yaw + (1.0-ALFA)*self.th
+		except: None
+		
+		return yaw
+					
 	########################################
 	def quaternion_to_euler(self, q):
 		# Extract quaternion components
@@ -191,17 +275,29 @@ class CarCoppelia:
 	# retorna velocidades linear e angular
 	def getVel(self):
 		while True:
-			err, lin, ang = sim.simxGetObjectVelocity(self.clientID, self.robot, sim.simx_opmode_streaming + 10)
-			if (err == sim.simx_return_ok):
-				v = np.linalg.norm(lin)
-				w = ang[2]
-				
-				try:
-					w = ALFA*w + (1.0-ALFA)*self.w
-				except: None
-				
-				return  v, w
-	
+			#-----------------------------------
+			if self.mode == 'legacy':
+				err, lin, ang = sim.simxGetObjectVelocity(self.clientID, self.robot, sim.simx_opmode_streaming + 10)
+				if (err == sim.simx_return_ok):
+					v = np.linalg.norm(lin)
+					w = ang[2]
+					break
+			
+			#-----------------------------------
+			if self.mode == 'zmq':
+				lin, ang = self.sim.getObjectVelocity(self.robot)
+				if (lin != -1): # CHECAR ERRO
+					v = np.linalg.norm(lin)
+					w = ang[2]
+					break
+		
+		#-----------------------------------
+		try:
+			w = ALFA*w + (1.0-ALFA)*self.w
+		except: None
+		
+		return  v, w
+					
 	########################################
 	# seta torque do veiculo
 	def setVel(self, vref):
@@ -224,18 +320,32 @@ class CarCoppelia:
 		
 		# atua
 		for m in [self.motorL, self.motorR]:
-			# Set the velocity to some large number with the correct sign, because v-rep is weird like that
-			while True:
-				err = sim.simxSetJointTargetVelocity(self.clientID, m, np.sign(u)*CAR['VELMAX'], sim.simx_opmode_oneshot_wait)
-				if (err == sim.simx_return_ok):
-					break
-					
-			# Apply the desired torques to the joints
-			while True:
-				err = sim.simxSetJointForce(self.clientID, m, np.abs(self.u), sim.simx_opmode_oneshot_wait)
-				if (err == sim.simx_return_ok):
-					break
-		
+			
+			#-----------------------------------
+			if self.mode == 'legacy':				
+				# Set the velocity to some large number with the correct sign, because v-rep is weird like that
+				while True:
+					err = sim.simxSetJointTargetVelocity(self.clientID, m, np.sign(u)*CAR['VELMAX'], sim.simx_opmode_oneshot_wait)
+					if (err == sim.simx_return_ok):
+						break
+						
+				# Apply the desired torques to the joints
+				while True:
+					err = sim.simxSetJointForce(self.clientID, m, np.abs(self.u), sim.simx_opmode_oneshot_wait)
+					if (err == sim.simx_return_ok):
+						break
+						
+			#-----------------------------------	
+			if self.mode == 'zmq':
+				while True:
+					status = self.sim.setJointTargetVelocity(m, np.sign(u)*CAR['VELMAX'])
+					if status == 1:
+						break
+						
+					status = self.sim.setJointForce(m, np.abs(self.u))
+					if status == 1:
+						break
+
 	########################################
 	# seta steer do veiculo
 	def setSteer(self, st):	
@@ -245,21 +355,44 @@ class CarCoppelia:
 		st = (st + CAR['STEERMAX'])/CAR['STEERMAX']
 		st *= 500.0
 		
-		while True:
-			err,_,_,_,_=sim.simxCallScriptFunction(self.clientID,'control_truck',sim.sim_scripttype_childscript,'setSteer',[],[st],[],bytearray(),sim.simx_opmode_oneshot_wait)
-			if (err == sim.simx_return_ok):
-				break
+		#-----------------------------------
+		if self.mode == 'legacy':
+			while True:
+				err,_,_,_,_= sim.simxCallScriptFunction(self.clientID,'control_truck',sim.sim_scripttype_childscript,'setSteer',[],[st],[],bytearray(),sim.simx_opmode_oneshot_wait)
+				if (err == sim.simx_return_ok):
+					break
+		
+		#-----------------------------------
+		if self.mode == 'zmq':
+			while True:
+				SteerScript = self.sim.getScript(self.sim.scripttype_childscript,self.sim.getObject("/Car/control_truck"),'/Car/control_truck')
+				_,_,_,err=self.sim.callScriptFunction('setSteer',SteerScript,[],[st],[],None)
+				if err == '': # Caso receba a string vazia, quer dizer que a funcao retornou certo
+					break		
 	
 	########################################
 	# get image data
 	def getImage(self):
 		
-		while True:
-			err, resolution, image = sim.simxGetVisionSensorImage(self.clientID, self.cam, 0, sim.simx_opmode_streaming)
-			if err == sim.simx_return_ok:
-				break
-				
-		img = np.array(image,dtype=np.uint8)
+		#-----------------------------------
+		if self.mode == 'legacy':
+			while True:
+				err, resolution, image = sim.simxGetVisionSensorImage(self.clientID, self.cam, 0, sim.simx_opmode_streaming)
+				if err == sim.simx_return_ok:
+					break
+			# trata imagem		
+			img = np.array(image,dtype=np.uint8)
+			
+		#-----------------------------------		
+		if self.mode == 'zmq':
+			while True:
+				image, resolution = self.sim.getVisionSensorImg(self.cam)
+				if image != -1:
+					break
+			# trata imagem		
+			img = np.frombuffer(image, dtype=np.uint8)
+			
+		#-----------------------------------
 		img.resize([resolution[1],resolution[0],3])
 		return img
 		
@@ -270,9 +403,16 @@ class CarCoppelia:
 		time.sleep(.5)
 		
 		# fecha simulador
-		sim.simxStopSimulation(self.clientID, sim.simx_opmode_oneshot_wait)
-		sim.simxFinish(-1)
-		print ('Program ended')
+		#-----------------------------------
+		if self.mode == 'legacy':
+			sim.simxStopSimulation(self.clientID, sim.simx_opmode_oneshot_wait)
+			sim.simxFinish(-1)
+		
+		#-----------------------------------
+		if self.mode == 'zmq':
+			self.sim.stopSimulation()
+		
+		print ('Programa terminado!')
 			
 	########################################
 	# termina a classe
