@@ -14,8 +14,7 @@ sys.path.append("coppeliasim_zmqremoteapi/")
 import sim
 from coppeliasim_zmqremoteapi_client import *
 import numpy as np
-
-#MODE = 'zmq' # legacy or zmq 
+import time
 
 ########################################
 # GLOBAIS
@@ -96,6 +95,7 @@ class CarCoppelia:
 			# Cria o cliente
 			self.client = RemoteAPIClient()
 			self.sim = self.client.getObject('sim')
+			self.sim.stopSimulation()
 					
 			# car
 			self.robot = self.sim.getObject('/Car')
@@ -183,6 +183,29 @@ class CarCoppelia:
 		
 		# atualiza amostragem
 		self.dt = self.t - t0
+		
+		# salva trajetoria
+		self.saveTraj()
+		
+	########################################
+	# salva a trajetoria
+	def saveTraj(self):
+		
+		# dados
+		data = {	't'     : self.t, 
+					'p'     : self.p, 
+					'v'     : self.v,
+					'vref'  : self.vref,
+					'th'    : self.th,
+					'w'     : self.w,
+					'u'     : self.u}
+				
+		# se ja iniciou as trajetorias
+		try:
+			self.traj.append(data)
+		# se for a primeira vez
+		except:
+			self.traj = [data]
 			
 	########################################
 	# retorna tempo da simulacao no Coppelia
@@ -224,52 +247,45 @@ class CarCoppelia:
 			if self.mode == 'legacy':
 				err, q = sim.simxGetObjectQuaternion(self.clientID, self.robot, -1, sim.simx_opmode_streaming + 10)
 				if (err == sim.simx_return_ok):
-					roll, pitch, yaw = self.quaternion_to_euler(q)
 					break
 			
 			#-----------------------------------	
 			if self.mode == 'zmq':
 				q = self.sim.getObjectQuaternion(self.robot,-1)
 				if (q != -1):
-					roll, pitch, yaw = self.quaternion_to_euler(q)
 					break
 		
 		#-----------------------------------
-		try:
-			yaw = ALFA*yaw + (1.0-ALFA)*self.th
-		except: None
-		
-		return yaw
-					
-	########################################
-	def quaternion_to_euler(self, q):
-		# Extract quaternion components
-		w, x, y, z = q
-
-		# Calculate roll (x-axis rotation)
-		sinr_cosp = 2.0 * (w * x + y * z)
-		cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
-		roll = np.arctan2(sinr_cosp, cosr_cosp)
-
-		# Calculate pitch (y-axis rotation)
-		sinp = 2.0 * (w * y - z * x)
-		if np.abs(sinp) >= 1:
-			pitch = np.copysign(np.pi / 2, sinp)  # Use 90 degrees if out of range
-		else:
-			pitch = np.arcsin(sinp)
-
-		# Calculate yaw (z-axis rotation)
-		siny_cosp = 2.0 * (w * z + x * y)
-		cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
-		yaw = np.arctan2(siny_cosp, cosy_cosp)
-		
-		yaw = -yaw - np.pi/2
+		# quaternion to roll-pitch-yaw
+		yaw = self.quaternion_to_yaw(q)
+		yaw -= np.pi
 		while yaw < 0.0:
 			yaw += 2.0*np.pi
 		while yaw > 2.0*np.pi:
 			yaw -= 2.0*np.pi
+		
+		#try:
+		#	yaw = ALFA*yaw + (1.0-ALFA)*self.th
+		#except: None
+		
+		return yaw
+		
+	########################################
+	def quaternion_to_yaw(self, q):
+		
+		qx, qy, qz, qw = q
+		
+		# Ensure the quaternion is normalized
+		norm = np.sqrt(qx**2 + qy**2 + qz**2 + qw**2)
+		qx /= norm
+		qy /= norm
+		qz /= norm
+		qw /= norm
 
-		return roll, pitch, yaw
+		# Calculate the yaw angle (rotation about the Z-axis)
+		yaw = np.arctan2(2 * (qx * qy + qw * qz), qw**2 + qx**2 - qy**2 - qz**2)
+
+		return yaw
 		
 	########################################
 	# retorna velocidades linear e angular
@@ -279,19 +295,20 @@ class CarCoppelia:
 			if self.mode == 'legacy':
 				err, lin, ang = sim.simxGetObjectVelocity(self.clientID, self.robot, sim.simx_opmode_streaming + 10)
 				if (err == sim.simx_return_ok):
-					v = np.linalg.norm(lin)
-					w = ang[2]
 					break
 			
 			#-----------------------------------
 			if self.mode == 'zmq':
 				lin, ang = self.sim.getObjectVelocity(self.robot)
 				if (lin != -1): # CHECAR ERRO
-					v = np.linalg.norm(lin)
-					w = ang[2]
 					break
-		
+					
 		#-----------------------------------
+		#ps = np.arctan2(lin[1], lin[0])
+		#print(np.rad2deg(ps), np.rad2deg(self.th))
+		v = np.linalg.norm(lin)
+		w = ang[2]
+		
 		try:
 			w = ALFA*w + (1.0-ALFA)*self.w
 		except: None
@@ -337,11 +354,14 @@ class CarCoppelia:
 						
 			#-----------------------------------	
 			if self.mode == 'zmq':
+				# Set the velocity to some large number with the correct sign, because v-rep is weird like that
 				while True:
 					status = self.sim.setJointTargetVelocity(m, np.sign(u)*CAR['VELMAX'])
 					if status == 1:
 						break
-						
+				
+				# Apply the desired torques to the joints
+				while True:
 					status = self.sim.setJointForce(m, np.abs(self.u))
 					if status == 1:
 						break
@@ -393,7 +413,7 @@ class CarCoppelia:
 			img = np.frombuffer(image, dtype=np.uint8)
 			
 		#-----------------------------------
-		img.resize([resolution[1],resolution[0],3])
+		img.resize([resolution[1], resolution[0],3])
 		return img
 		
 	########################################
