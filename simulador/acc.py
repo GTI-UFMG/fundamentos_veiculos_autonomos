@@ -88,8 +88,6 @@ while car.t < 100.0:
 		u = Kp*(DIST_REF - distance) + Kv*(VREF - car.v)
 		car.setU(u)
 		
-	car.setVel(0)
-		
 	dist.append(distance)
 	
 	########################################
