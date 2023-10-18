@@ -152,6 +152,12 @@ class CarCoppelia:
 		# tempo inicial
 		self.tinit = self.getTime()
 		
+		# estados iniciais
+		self.getStates()
+		
+		# comeca parado
+		self.setU(0.0)
+		
 	########################################
 	# termina a missao
 	def stopMission(self):	
@@ -264,10 +270,6 @@ class CarCoppelia:
 		while yaw > 2.0*np.pi:
 			yaw -= 2.0*np.pi
 		
-		#try:
-		#	yaw = ALFA*yaw + (1.0-ALFA)*self.th
-		#except: None
-		
 		return yaw
 		
 	########################################
@@ -304,9 +306,22 @@ class CarCoppelia:
 					break
 					
 		#-----------------------------------
-		#ps = np.arctan2(lin[1], lin[0])
-		#print(np.rad2deg(ps), np.rad2deg(self.th))
-		v = np.linalg.norm(lin)
+		if np.linalg.norm(lin) > 0.01:
+			# angulo de translacao
+			ps = np.arctan2(lin[1], lin[0])
+			while ps < 0.0:
+				ps += 2.0*np.pi
+			while ps > 2.0*np.pi:
+				ps -= 2.0*np.pi
+			
+			# diferenca entre translacao e orientacao
+			if np.abs(ps - self.th) > np.pi/2:
+				v = -np.linalg.norm(lin)
+			else:
+				v = np.linalg.norm(lin)
+		else:
+			v = 0.0
+			
 		w = ang[2]
 		
 		try:
