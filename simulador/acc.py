@@ -64,7 +64,7 @@ def detect_Aruco(image):
 car = cp. CarCoppelia()
 car.startMission()
 
-dist = []
+dist = [np.nan]
 
 while car.t < 100.0:
 	

@@ -24,15 +24,21 @@ while car.t < 50.0:
 	# lê senores
 	car.step()
 	
-	# atua
-	car.setSteer(20.0*np.sin(0.2*car.getTime()))
-	car.setU(np.abs(np.sin(0.01*car.getTime())))
+	# seta direcao
+	delta = -2.0*(0.0 - car.p[0]) + 5.0*(0.0 - car.w)
+	car.setSteer(-delta)
 	
-	# lê e exibe camera
-	frame = car.getImage()
-	image_bgr = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+	# atua
+	if car.t < 2.0:
+		car.setU(0.1)
+	else:
+		car.setU(0.0)
+	
+	# plota
 	plt.clf()
-	plt.gca().imshow(image_bgr, origin='lower')
+	t = [traj['t'] for traj in car.traj]
+	v = [traj['v'] for traj in car.traj]
+	plt.plot(t,v)
 	plt.show()
 	plt.pause(0.01)
 	

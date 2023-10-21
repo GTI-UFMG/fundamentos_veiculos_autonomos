@@ -108,7 +108,7 @@ while car.t < 100.0:
 	car.setSteer(delta)
 	
 	# velocidade
-	car.setVel(2.0)
+	car.setVel(1.0)
 	
 	########################################
 	# salva e mostra valores	
