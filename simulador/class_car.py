@@ -24,6 +24,7 @@ CAR = {
 		'VELMAX'	: 5.0,				# m/s
 		'ACCELMAX'	: 0.25, 			# m/s^2
 		'STEERMAX'	: np.deg2rad(20.0),	# deg
+		'MASS'		: 6.35,				# kg
 	}
 
 # parametro de filtragem
@@ -157,6 +158,9 @@ class CarCoppelia:
 		
 		# comeca parado
 		self.setU(0.0)
+		
+		# salva trajetoria
+		self.saveTraj()
 		
 	########################################
 	# termina a missao
@@ -325,6 +329,9 @@ class CarCoppelia:
 		w = ang[2]
 		
 		try:
+			v = ALFA*v + (1.0-ALFA)*self.v
+		except: None
+		try:
 			w = ALFA*w + (1.0-ALFA)*self.w
 		except: None
 		
@@ -334,7 +341,7 @@ class CarCoppelia:
 	# seta torque do veiculo
 	def setVel(self, vref):
 		
-		Kp = 1.0
+		Kp = 0.7
 		Kd = 0.1
 		# referencia de velocidade
 		self.vref = np.clip(vref, 0.0, CAR['VELMAX'])
@@ -350,6 +357,9 @@ class CarCoppelia:
 		# limita aceleracao
 		self.u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
+		# sinal da velocidade
+		su = np.sign(u)*CAR['VELMAX']
+		
 		# atua
 		for m in [self.motorL, self.motorR]:
 			
@@ -357,7 +367,7 @@ class CarCoppelia:
 			if self.mode == 'legacy':				
 				# Set the velocity to some large number with the correct sign, because v-rep is weird like that
 				while True:
-					err = sim.simxSetJointTargetVelocity(self.clientID, m, np.sign(u)*CAR['VELMAX'], sim.simx_opmode_oneshot_wait)
+					err = sim.simxSetJointTargetVelocity(self.clientID, m, su, sim.simx_opmode_oneshot_wait)
 					if (err == sim.simx_return_ok):
 						break
 						
@@ -371,7 +381,7 @@ class CarCoppelia:
 			if self.mode == 'zmq':
 				# Set the velocity to some large number with the correct sign, because v-rep is weird like that
 				while True:
-					status = self.sim.setJointTargetVelocity(m, np.sign(u)*CAR['VELMAX'])
+					status = self.sim.setJointTargetVelocity(m, su)
 					if status == 1:
 						break
 				
