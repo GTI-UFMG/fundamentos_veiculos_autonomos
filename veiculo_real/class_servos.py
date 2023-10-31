@@ -6,6 +6,7 @@
 # DELT – Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
+
 import numpy as np
 import time
 from adafruit_servokit import ServoKit
@@ -99,22 +100,3 @@ class Servos:
     # destrutor
     def __del__(self):
         None
-        
-########################################
-# teste
-########################################
-import time
-
-atuador = Servos()
-    
-
-atuador.setU(-1.0)
-time.sleep(3.0)
-
-'''for i in np.linspace(1.0, -1.0, 30):
-    print(i)
-    atuador.setU(i)
-    time.sleep(1.0)
-
-atuador.setU(0.0)
-'''

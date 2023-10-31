@@ -50,15 +50,3 @@ class Encoder:
     def __del__(self):
         # Feche a porta serial quando terminar
         self.ser.close()
-
-########################################
-# teste
-########################################
-import time
-
-odometro = Encoder()
-
-for i in range(100):
-    print(odometro.getVel())
-    time.sleep(1.0)
-
