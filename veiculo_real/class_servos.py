@@ -47,14 +47,15 @@ class Servos:
     def setU(self, u):
         
         # satura aceleracao
-        u = np.clip(u, -1.0, 1.0)
+        #u = np.clip(u, -1.0, 1.0)
+        u = np.clip(u, 0.0, 1.0)
         
-        # passar marcha ré
+        '''# passar marcha ré
         if (u < 0.0) and (not self.reverse):
             self.reverse = True
             self.backward()
         if u >=0:
-            self.reverse = False
+            self.reverse = False'''
             
         # calibracao
         u = GAIN_THROTTLE_ANGLE*u + ZERO_THROTTLE_ANGLE

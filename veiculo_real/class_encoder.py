@@ -27,6 +27,10 @@ class Encoder:
         # abrindo porta serial
         self.ser = serial.Serial(DEVICE, BAUDRATE)
         
+        # pega o primeiro valor de velocidade
+        self.vel = 0.0
+        self.vel = self.getVel()
+        
     ########################################
     # lê velocidade
     def getVel(self):
@@ -42,8 +46,10 @@ class Encoder:
         
         # converte velocidade de rpm para m/s
         vel = RAIO_RODA*(np.pi/30.0)*rpm
+        if not np.isnan(vel):
+            self.vel = vel
         
-        return vel
+        return self.vel
     
     ########################################
     # destrutor
