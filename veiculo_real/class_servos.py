@@ -13,6 +13,8 @@ from adafruit_servokit import ServoKit
 
 SERVO_STEERING = 0
 SERVO_THROTTLE  = 1
+SERVO_PAN  = 4
+SERVO_TILT = 5
 
 MAX_STERRING_ANGLE  = 20.0
 ZERO_STERRING_ANGLE = 100.0
@@ -97,6 +99,35 @@ class Servos:
         time.sleep(0.08)
         self.kit.servo[SERVO_THROTTLE].angle = ZERO_STERRING_ANGLE
         
+    ########################################
+    # angulo de pan da camera entre [-90, 90]
+    def setPan(self, ang):
+            
+        # converte para graus
+        ang = np.rad2deg(ang)
+        # angulo centrado em zero
+        ang += 90.0        
+        
+        # envia comando
+        ang = np.clip(ang, 0.0, 180.0)
+        self.kit.servo[SERVO_PAN].angle = ang
+
+    ########################################
+    # angulo de tilt da camera entre [-90, 90]
+    def setTilt(self, ang):
+        
+        # converte para graus
+        ang = np.rad2deg(ang)
+        
+        # limite fisico por causa do fio da camera
+        ang = np.clip(ang, -40.0, 40.0)
+        
+        # angulo centrado em zero
+        ang += 90.0        
+        
+        # envia comando
+        ang = np.clip(ang, 0.0, 180.0)
+        self.kit.servo[SERVO_TILT].angle = ang
     ########################################
     # destrutor
     def __del__(self):

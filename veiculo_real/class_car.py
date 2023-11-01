@@ -58,7 +58,7 @@ class Car:
 		self.atuador = class_servos.Servos()
 		
 		# camera
-		#self.cam = class_camera.Camera()
+		self.cam = class_camera.Camera()
 				
 		print('Car ok!')
 	
@@ -85,6 +85,9 @@ class Car:
 		# comeca parado
 		self.setU(0.0)
 		self.setSteer(0.0)
+		
+		# seta orientacao da camera
+		self.setPanTilt()
 		
 		# salva trajetoria
 		self.saveTraj()
@@ -196,6 +199,12 @@ class Car:
 		# atua no volante
 		self.atuador.setSteer(self.st)
 	
+	########################################
+	# seta orientacao da camera
+	def setPanTilt(pan=np.deg2rad(0.0), tilt=np.deg2rad(-5.0)):
+		self.atuador.setPan(pan)
+		self.atuador.setTilt(tilt)
+		
 	########################################
 	# get image data
 	def getImage(self):
