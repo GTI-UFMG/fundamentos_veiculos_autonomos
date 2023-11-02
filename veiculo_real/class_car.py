@@ -53,12 +53,15 @@ class Car:
 		
 		# odometro da roda
 		self.odometer = class_encoder.Encoder()
+		print('Odometria ok...')
 		
 		# atuadores de esterçamento e aceleração
 		self.atuador = class_servos.Servos()
+		print('Servos ok...')
 		
 		# camera
 		self.cam = class_camera.Camera()
+		print('Camera ok...')
 				
 		print('Car ok!')
 	
@@ -201,15 +204,15 @@ class Car:
 	
 	########################################
 	# seta orientacao da camera
-	def setPanTilt(pan=np.deg2rad(0.0), tilt=np.deg2rad(-5.0)):
+	def setPanTilt(self, pan=np.deg2rad(0.0), tilt=np.deg2rad(-5.0)):
 		self.atuador.setPan(pan)
 		self.atuador.setTilt(tilt)
 		
 	########################################
 	# get image data
-	def getImage(self):
+	def getImage(self, gray=False):
 		# pega imagem
-		return self.cam.getImage()
+		return self.cam.getImage(gray)
 		
 	########################################
 	# termina a classe
