@@ -173,13 +173,18 @@ class Car:
 	def setVel(self, vref):
 		
 		Kp = 0.1
-		Kd = 0.01
+		Kd = 0*0.01
 		
 		# referencia de velocidade
 		self.vref = np.clip(vref, 0.0, CAR['VELMAX'])
 		
 		# controle de velocidade
-		u = Kp*(self.vref - self.v) + Kd*(0.0 - self.u)
+		#u = Kp*(self.vref - self.v) + Kd*(0.0 - self.u)
+		#self.setU(u)
+		
+		# controle de velocidade com integrador
+		du = Kp*(self.vref - self.v) + Kd*(0.0 - self.u)
+		u = self.u + du*self.dt
 		self.setU(u)
 				
 	########################################
