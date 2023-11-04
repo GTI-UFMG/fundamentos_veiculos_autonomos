@@ -51,10 +51,6 @@ class Car:
 		# comando de esterçamento
 		self.st = 0.0
 		
-		# odometro da roda
-		self.odometer = class_encoder.Encoder()
-		print('Odometria ok...')
-		
 		# atuadores de esterçamento e aceleração
 		self.atuador = class_servos.Servos()
 		print('Servos ok...')
@@ -62,8 +58,12 @@ class Car:
 		# camera
 		self.cam = class_camera.Camera()
 		print('Camera ok...')
-				
-		print('Car ok!')
+		
+		# odometro da roda
+		self.odometer = class_encoder.Encoder()
+		print('Odometria ok...')
+		
+		print('Carro pronto!')
 	
 	########################################
 	# get states
@@ -97,8 +97,11 @@ class Car:
 		
 	########################################
 	# termina a missao
-	def stopMission(self):	
-		None
+	def stopMission(self):
+		
+		# termina parado
+		self.setU(0.0)
+		self.setSteer(0.0)
 	
 	########################################
 	def step(self):
@@ -173,7 +176,7 @@ class Car:
 	def setVel(self, vref):
 		
 		Kp = 0.1
-		Kd = 0*0.01
+		Kd = 0.01
 		
 		# referencia de velocidade
 		self.vref = np.clip(vref, 0.0, CAR['VELMAX'])
@@ -222,6 +225,7 @@ class Car:
 	########################################
 	# termina a classe
 	def __del__(self):
+		self.stopMission()
 		
 		time.sleep(1.0)
 		
@@ -230,5 +234,4 @@ class Car:
 	########################################
 	# termina a classe
 	def __exit__(self):
-		self.stopMission()
 		self.__del__()

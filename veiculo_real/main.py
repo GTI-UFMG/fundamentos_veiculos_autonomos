@@ -11,55 +11,104 @@ import class_car as cp
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
-
 import threading
+import time
+
+# cria carrinho
+car = cp. Car()
+car.startMission()
+
+terminar = False
+
+refvel = 1.0
+refste = np.deg2rad(0.0)
+frame = car.getImage(gray=True)
+W = frame.shape[1]
+H = frame.shape[0]
+
+plt.ion()
+plt.figure(1)
 
 ########################################
-def control():
+# thread de controle de velocidade
+def control_func():
 	
-	while car.t < 50.0:
-		# lê senores
+	global car
+	global refste
+	global refvel
+	
+	while not terminar:
+		# lê sensores
 		car.step()
 		
 		# seta direcao
-		car.setSteer(np.deg2rad(20.0*np.sin(0.1*car.t)))
+		car.setSteer(refste)
 		
 		# atua
 		car.setVel(refvel)
 		
+		# espera
+		time.sleep(0.1)
+		
 ########################################
-# cria comunicação com o carrinho
-car = cp. Car()
-car.startMission()
-
-# Load the dictionary of ArUco markers.
-aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_100)
-# Create a parameters object for ArUco detection.
-parameters = cv2.aruco.DetectorParameters_create()
-
-refvel = 1.0
-
-thread = threading.Thread(target=control)
-thread.start()
-
-plt.ion()
-plt.figure(1)
+# thread de visão
+def vision_func():
 	
+	global car
+	global refste
+	global refvel
+	global frame
+	
+	# Load the dictionary of ArUco markers.
+	aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_100)
+	# Create a parameters object for ArUco detection.
+	parameters = cv2.aruco.DetectorParameters_create()
+	
+	while not terminar:
+		
+		# pega image
+		frame = car.getImage(gray=True)
+		
+		# Detect ArUco markers in the frame.
+		corners, ids, rejectedImgPoints = cv2.aruco.detectMarkers(frame, aruco_dict, parameters=parameters)
+		
+		# velocidade padrão
+		refvel = 0.2
+		
+		# nao vi nada, continua
+		if ids is None:
+			continue
+		
+		# Iterate through detected markers
+		for i, marker_id in enumerate(ids):
+			
+			# se vir o aruco 24
+			if np.squeeze(marker_id) == 24:
+							
+				# Get the corner coordinates of the current marker
+				marker_corners = corners[i][0]
+				
+				# Calculate the centroid of the marker
+				centroid_x = int(sum(marker_corners[:, 0]) / 4)
+				centroid_y = int(sum(marker_corners[:, 1]) / 4)
+				
+				# aumenta velocidade de referencia
+				refvel = 1.0
+				
+				# estercamento aponta para o aruco
+				cx = centroid_x - W/2
+				refste = -np.deg2rad(20.0*cx/(W/2))
+
 ########################################
-while car.t < 50.0:
-	
-	# pega image
-	frame = car.getImage(gray=True)
-	
-	# Detect ArUco markers in the frame.
-	corners, ids, rejectedImgPoints = cv2.aruco.detectMarkers(frame, aruco_dict, parameters=parameters)
+# disparar threads
+thread_control = threading.Thread(target=control_func)
+thread_vision = threading.Thread(target=vision_func)
+thread_control.start()
+thread_vision.start()
 
-	if ids is not None:
-		# Draw detected markers on the frame.
-		cv2.aruco.drawDetectedMarkers(frame, corners, ids)
-		refvel = 1.5
-	else:
-		refvel = 1.0
+########################################
+# loop principal
+while car.t < 100.0:
 	
 	# plota
 	plt.subplot(211)
@@ -79,4 +128,10 @@ while car.t < 50.0:
 	plt.show()
 	plt.pause(0.01)
 	
+plt.pause(10.0)
+
+terminar = True
+thread_control.join()
+thread_vision.join()
+del car
 print('Terminou...')
