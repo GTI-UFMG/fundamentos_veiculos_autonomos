@@ -10,7 +10,7 @@
 import cv2
 from picamera2 import Picamera2
 
-RESOLUTION = (640, 480)
+RESOLUTION = (1296, 972) #(640, 480)
 FORMAT = 'XRGB8888'
 
 ########################################

@@ -20,7 +20,9 @@ car.startMission()
 
 terminar = False
 
-refvel = 1.0
+MAIN_VEL = 0.5
+
+refvel = MAIN_VEL
 refste = np.deg2rad(0.0)
 frame = car.getImage(gray=True)
 W = frame.shape[1]
@@ -48,7 +50,7 @@ def control_func():
 		car.setVel(refvel)
 		
 		# espera
-		time.sleep(0.1)
+		time.sleep(0.01)
 		
 ########################################
 # thread de visão
@@ -73,7 +75,7 @@ def vision_func():
 		corners, ids, rejectedImgPoints = cv2.aruco.detectMarkers(frame, aruco_dict, parameters=parameters)
 		
 		# velocidade padrão
-		refvel = 0.2
+		refvel = MAIN_VEL
 		
 		# nao vi nada, continua
 		if ids is None:
@@ -93,7 +95,7 @@ def vision_func():
 				centroid_y = int(sum(marker_corners[:, 1]) / 4)
 				
 				# aumenta velocidade de referencia
-				refvel = 1.0
+				refvel = 1.5*MAIN_VEL
 				
 				# estercamento aponta para o aruco
 				cx = centroid_x - W/2
@@ -126,7 +128,7 @@ while car.t < 100.0:
 	plt.xlabel('Time')
 	
 	plt.show()
-	plt.pause(0.01)
+	plt.pause(5.0)
 	
 plt.pause(10.0)
 

@@ -26,7 +26,7 @@ CAR = {
 	}
 
 # parametro de filtragem
-ALFA = 0.5
+ALFA = 0.3
 
 ########################################
 # Carrinho
@@ -159,13 +159,8 @@ class Car:
 		
 		# lê velocidade do encoder
 		v = self.odometer.getVel()
-		
-		# filtragem
-		try:
-			v = ALFA*v + (1.0-ALFA)*self.v
-		except: None
 
-		# sem IMU, calular artificialmente
+		# sem IMU, calcular artificialmente
 		#w = 0.0
 		w = v*np.tan(self.st)/CAR['L']
 
@@ -175,11 +170,14 @@ class Car:
 	# seta torque do veiculo
 	def setVel(self, vref):
 		
-		Kp = 0.1
+		Kp = 0.2
 		Kd = 0.01
 		
 		# referencia de velocidade
-		self.vref = np.clip(vref, 0.0, CAR['VELMAX'])
+		vref = np.clip(vref, 0.0, CAR['VELMAX'])
+		
+		# filtragem
+		self.vref = ALFA*vref + (1.0-ALFA)*self.vref
 		
 		# controle de velocidade
 		#u = Kp*(self.vref - self.v) + Kd*(0.0 - self.u)
@@ -212,7 +210,7 @@ class Car:
 	
 	########################################
 	# seta orientacao da camera
-	def setPanTilt(self, pan=np.deg2rad(0.0), tilt=np.deg2rad(-5.0)):
+	def setPanTilt(self, pan=np.deg2rad(0.0), tilt=np.deg2rad(-35.0)):
 		self.atuador.setPan(pan)
 		self.atuador.setTilt(tilt)
 		
