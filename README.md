@@ -7,8 +7,10 @@
 
 Simulador CoppeliaSim
 
-![coppelia](https://github.com/CELTA-UFMG/fundamentos_veiculos_autonomos/assets/64908110/85a35193-d9f2-4d48-920a-73de92e7b9b0)
+<img src="https://github.com/CELTA-UFMG/fundamentos_veiculos_autonomos/assets/64908110/85a35193-d9f2-4d48-920a-73de92e7b9b0" alt="Alt text" width="600">
+
+##
 
 Carrinhos reais equipados com sensores e computação embarcada
 
-![carrinhos](https://github.com/CELTA-UFMG/fundamentos_veiculos_autonomos/assets/64908110/93844144-905d-4267-92d3-086e150e8e8d)
+<img src="https://github.com/CELTA-UFMG/fundamentos_veiculos_autonomos/assets/64908110/93844144-905d-4267-92d3-086e150e8e8d)" alt="Alt text" width="600">
