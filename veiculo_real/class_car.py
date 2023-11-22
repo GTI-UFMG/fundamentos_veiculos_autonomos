@@ -40,13 +40,16 @@ class Car:
 		self.t = 0.0
 		
 		# tempo de amostragem
-		self.dt = 0.0
+		self.dt = 0.1
 		
 		# velocidade de comando
 		self.vref = 0.0
+		self.v = 0.0
+		self.a = 0.0
 		
 		# comando de aceleracao
 		self.u = 0.0
+		self.pwm = 0.0
 		
 		# comando de esterçamento
 		self.st = 0.0
@@ -68,9 +71,21 @@ class Car:
 	########################################
 	# get states
 	def getStates(self):
+		
+		# posicao
 		self.p = self.getPos()
+		
+		# orientacao
 		self.th = self.getYaw()
+		
+		# velocidade 
+		self.v_ant = self.v
 		self.v, self.w = self.getVel()
+		
+		# aceleracao
+		self.a = self.getAccel()
+		
+		# tempo
 		self.t = self.getTime() - self.tinit
 				
 		return self.p, self.v, self.th, self.w, self.t
@@ -165,6 +180,14 @@ class Car:
 		w = v*np.tan(self.st)/CAR['L']
 
 		return v, w
+		
+	########################################
+	# retorna velocidades linear e angular
+	def getAccel(self):
+		a = (self.v - self.v_ant)/self.dt
+		# filtro
+		a = ALFA*a + (1.0-ALFA)*self.a
+		return a
 					
 	########################################
 	# seta torque do veiculo
@@ -192,11 +215,29 @@ class Car:
 	# seta torque dos motores do veiculo
 	def setU(self, u):
 		
+		# ganho
+		K = np.deg2rad(5.0)
+		
+		# limita aceleracao
+		u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
+		
+		# controle de aceleracao com integrador
+		dpwm = K*(u - self.a)/CAR['ACCELMAX']
+		self.pwm += dpwm*self.dt
+		self.pwm = np.clip(self.pwm, -np.deg2rad(0.0), np.deg2rad(90.0))
+		
+		# seta PWM
+		self.atuador.setU(self.pwm)
+		
+	########################################
+	# seta torque dos motores do veiculo
+	def setU2(self, u):
+		
 		# limita aceleracao
 		self.u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
 		# seta aceleracao (normalizada entre -1 e 1)
-		self.atuador.setU(self.u/CAR['ACCELMAX'])
+		self.atuador.setU2(self.u/CAR['ACCELMAX'])
 
 	########################################
 	# seta steer do veiculo
