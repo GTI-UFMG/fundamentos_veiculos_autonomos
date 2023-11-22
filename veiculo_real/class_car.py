@@ -47,6 +47,11 @@ class Car:
 		self.v = 0.0
 		self.a = 0.0
 		
+		# variaveis calculadas (sem medição)
+		self.th = 0.0
+		self.w = 0.0
+		self.p = np.array((0.0, 0.0))
+		
 		# comando de aceleracao
 		self.u = 0.0
 		self.pwm = 0.0
@@ -72,18 +77,18 @@ class Car:
 	# get states
 	def getStates(self):
 		
-		# posicao
-		self.p = self.getPos()
-		
-		# orientacao
-		self.th = self.getYaw()
-		
 		# velocidade 
 		self.v_ant = self.v
 		self.v, self.w = self.getVel()
 		
 		# aceleracao
 		self.a = self.getAccel()
+		
+		# orientacao
+		self.th = self.getYaw()
+		
+		# posicao
+		self.p = self.getPos()
 		
 		# tempo
 		self.t = self.getTime() - self.tinit
@@ -161,12 +166,24 @@ class Car:
 	########################################
 	# retorna posicao do carro - sem GPS
 	def getPos(self):
-		return np.array((0.0, 0.0))			
+		
+		x = self.p[0] + self.v*np.cos(self.th)*self.dt
+		y = self.p[1] + self.v*np.sin(self.th)*self.dt
+		
+		return np.array((x, y))			
 				
 	########################################
 	# retorna yaw - sem bussola
 	def getYaw(self):
-		return 0.0
+		
+		th = self.th + self.w*self.dt
+		
+		while th < 0.0:
+			th += 2.0*np.pi
+		while th > 2.0*np.pi:
+			th -= 2.0*np.pi
+		
+		return th
 		
 	########################################
 	# retorna velocidades linear e angular
@@ -176,7 +193,6 @@ class Car:
 		v = self.odometer.getVel()
 
 		# sem IMU, calcular artificialmente
-		#w = 0.0
 		w = v*np.tan(self.st)/CAR['L']
 
 		return v, w
