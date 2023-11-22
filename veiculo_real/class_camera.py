@@ -39,6 +39,22 @@ class Camera:
 		return img
 		
 	########################################
+	# função para testar a camera
+	def test(self, total_time=10.0):
+		ti = float(time.time())
+		while (float(time.time()) - ti) <= total_time:
+			if imagem is None:
+				print('Não foi possível carregar a imagem.')
+			else:
+				# Exiba a imagem em uma janela chamada 'Imagem'
+				cv2.imshow('Imagem', self.getImage())
+		
+	########################################
 	# destrutor
 	def __del__(self):
 		self.cam.close()
+		
+########################################
+#cam = Camera()
+#cam.test()
+

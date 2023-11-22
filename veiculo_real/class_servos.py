@@ -7,10 +7,11 @@
 # Universidade Federal de Minas Gerais
 ########################################
 
-import numpy as np
 import time
+import numpy as np
 from adafruit_servokit import ServoKit
 
+# Canais de entradas dos servos
 SERVO_STEERING = 0
 SERVO_THROTTLE  = 1
 SERVO_PAN  = 4
@@ -43,7 +44,24 @@ class Servos:
         
         # marcha re
         self.reverse = False
+        
+        # ajuste fino dos servos
+        self.setTrim()
     
+    ########################################
+    # seta o ajuste fino dos servos (em radianos)
+    def setTrim(steer=0.0, throttle=0.0, pan=0.0, tilt=0.0):
+		
+		# trim do esterçamento
+		self.trim_steer = np.clip(steer, -np.deg2rad(10.0), np.deg2rad(10.0))
+		
+		# trim da tração
+		self.trim_throttle = np.clip(throttle, -np.deg2rad(10.0), np.deg2rad(10.0))
+		
+		# trim da camera
+		self.trim_pan = np.clip(pan, -np.deg2rad(20.0), np.deg2rad(20.0))
+		self.trim_tilt = np.clip(tilt, -np.deg2rad(20.0), np.deg2rad(20.0))
+		
     ########################################
     # seta torque do motor
     def setU(self, u):
@@ -73,7 +91,7 @@ class Servos:
     def setSteer(self, st):
         
         # converte para graus
-        st = np.rad2deg(st)
+        st = np.rad2deg(st + self.trim_steer)
         
         # satura angulo de estercamento
         st = np.clip(st, -MAX_STERRING_ANGLE, MAX_STERRING_ANGLE)
@@ -104,7 +122,8 @@ class Servos:
     def setPan(self, ang):
             
         # converte para graus
-        ang = np.rad2deg(ang)
+        ang = np.rad2deg(ang + self.trim_pan)
+        
         # angulo centrado em zero
         ang += 90.0        
         
@@ -113,14 +132,14 @@ class Servos:
         self.kit.servo[SERVO_PAN].angle = ang
 
     ########################################
-    # angulo de tilt da camera entre [-90, 90]
+    # angulo de tilt da camera entre [-40, 40]
     def setTilt(self, ang):
         
         # converte para graus
-        ang = np.rad2deg(ang)
+        ang = np.rad2deg(ang + self.trim_tilt)
         
         # limite fisico por causa do fio da camera
-        ang = np.clip(ang, -40.0, 40.0)
+        ang = np.clip(ang, -50.0, 50.0)
         
         # angulo centrado em zero
         ang += 90.0        
@@ -128,7 +147,11 @@ class Servos:
         # envia comando
         ang = np.clip(ang, 0.0, 180.0)
         self.kit.servo[SERVO_TILT].angle = ang
+        
     ########################################
     # destrutor
     def __del__(self):
-        None
+		self.kit.servo[SERVO_STEERING].angle = None
+		self.kit.servo[SERVO_THROTTLE].angle = None
+		self.kit.servo[SERVO_PAN].angle = None
+        self.kit.servo[SERVO_TILT].angle = None
