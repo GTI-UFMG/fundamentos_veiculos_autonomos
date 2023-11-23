@@ -20,7 +20,7 @@ car.startMission()
 
 terminar = False
 
-MAIN_VEL = 0.5
+MAIN_VEL = 0.8
 
 refvel = MAIN_VEL
 refste = np.deg2rad(0.0)
@@ -48,6 +48,11 @@ def control_func():
 		
 		# atua
 		car.setVel(refvel)
+		
+		#if 5.0 < car.t < 10.0:
+		#	car.setU(0.5)
+		#else:
+		#	car.setU(0.0)
 		
 		# espera
 		time.sleep(0.01)
@@ -110,7 +115,7 @@ thread_vision.start()
 
 ########################################
 # loop principal
-while car.t < 100.0:
+while car.t < 30.0:
 	
 	# plota
 	plt.subplot(211)
@@ -128,7 +133,7 @@ while car.t < 100.0:
 	plt.xlabel('Time')
 	
 	plt.show()
-	plt.pause(5.0)
+	plt.pause(1.0)
 	
 plt.pause(10.0)
 

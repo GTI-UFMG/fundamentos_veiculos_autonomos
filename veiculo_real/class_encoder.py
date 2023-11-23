@@ -57,7 +57,7 @@ class Encoder:
 	def test(self, total_time=10.0):
 		ti = float(time.time())
 		while (float(time.time()) - ti) <= total_time:
-			print('Velocidade = %.2f' % self.getVel())
+			print('Velocidade = %.1f m/s' % self.getVel())
 	
 	########################################
 	# destrutor

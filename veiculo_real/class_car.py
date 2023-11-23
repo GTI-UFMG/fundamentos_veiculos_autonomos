@@ -19,7 +19,7 @@ import class_camera
 # parametros do carro
 CAR = {
 		'VELMAX'	: 5.0,				# m/s
-		'ACCELMAX'	: 0.25, 			# m/s^2
+		'ACCELMAX'	: 0.5, 			# m/s^2
 		'STEERMAX'	: np.deg2rad(20.0),	# deg
 		'MASS'		: 6.35,				# kg
 		'L'			: 0.36,				# distancia entre os eixos das rodas
@@ -61,17 +61,17 @@ class Car:
 		
 		# atuadores de esterçamento e aceleração
 		self.atuador = class_servos.Servos()
-		print('Servos ok...')
+		print('Servos ok...', flush=True)
 		
 		# camera
 		self.cam = class_camera.Camera()
-		print('Camera ok...')
+		print('Camera ok...', flush=True)
 		
 		# odometro da roda
 		self.odometer = class_encoder.Encoder()
-		print('Odometria ok...')
+		print('Odometria ok...', flush=True)
 		
-		print('Carro pronto!')
+		print('Carro pronto!', flush=True)
 	
 	########################################
 	# get states
@@ -149,7 +149,8 @@ class Car:
 					'vref'  : self.vref,
 					'th'    : self.th,
 					'w'     : self.w,
-					'u'     : self.u}
+					'u'     : self.u,
+					'a'     : self.a}
 				
 		# se ja iniciou as trajetorias
 		try:
@@ -200,17 +201,18 @@ class Car:
 	########################################
 	# retorna velocidades linear e angular
 	def getAccel(self):
+		BETA = 0.05
 		a = (self.v - self.v_ant)/self.dt
 		# filtro
-		a = ALFA*a + (1.0-ALFA)*self.a
+		a = BETA*a + (1.0-BETA)*self.a
 		return a
 					
 	########################################
 	# seta torque do veiculo
 	def setVel(self, vref):
 		
-		Kp = 0.2
-		Kd = 0.01
+		Kp = 0.7
+		Kd = 0.1
 		
 		# referencia de velocidade
 		vref = np.clip(vref, 0.0, CAR['VELMAX'])
@@ -219,12 +221,9 @@ class Car:
 		self.vref = ALFA*vref + (1.0-ALFA)*self.vref
 		
 		# controle de velocidade
-		#u = Kp*(self.vref - self.v) + Kd*(0.0 - self.u)
-		#self.setU(u)
+		u = Kp*(self.vref - self.v) + Kd*(0.0 - self.u)
 		
-		# controle de velocidade com integrador
-		du = Kp*(self.vref - self.v) + Kd*(0.0 - self.u)
-		u = self.u + du*self.dt
+		# seta o comando do servos
 		self.setU(u)
 				
 	########################################
@@ -232,28 +231,18 @@ class Car:
 	def setU(self, u):
 		
 		# ganho
-		K = np.deg2rad(5.0)
+		K = np.deg2rad(20.0)
 		
 		# limita aceleracao
 		u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
 		# controle de aceleracao com integrador
 		dpwm = K*(u - self.a)/CAR['ACCELMAX']
-		self.pwm += dpwm*self.dt
-		self.pwm = np.clip(self.pwm, -np.deg2rad(0.0), np.deg2rad(90.0))
+		self.pwm = self.pwm + dpwm*self.dt
+		self.pwm = np.clip(self.pwm, -np.deg2rad(90.0), np.deg2rad(90.0))
 		
 		# seta PWM
 		self.atuador.setU(self.pwm)
-		
-	########################################
-	# seta torque dos motores do veiculo
-	def setU2(self, u):
-		
-		# limita aceleracao
-		self.u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
-		
-		# seta aceleracao (normalizada entre -1 e 1)
-		self.atuador.setU2(self.u/CAR['ACCELMAX'])
 
 	########################################
 	# seta steer do veiculo

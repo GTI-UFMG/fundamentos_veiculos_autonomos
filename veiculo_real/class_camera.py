@@ -7,6 +7,7 @@
 # Universidade Federal de Minas Gerais
 ########################################
 
+import time
 import cv2
 from picamera2 import Picamera2
 
@@ -43,11 +44,12 @@ class Camera:
 	def test(self, total_time=10.0):
 		ti = float(time.time())
 		while (float(time.time()) - ti) <= total_time:
-			if imagem is None:
+			img = self.getImage()
+			if img is None:
 				print('Não foi possível carregar a imagem.')
 			else:
 				# Exiba a imagem em uma janela chamada 'Imagem'
-				cv2.imshow('Imagem', self.getImage())
+				cv2.imshow('Imagem', img)
 		
 	########################################
 	# destrutor

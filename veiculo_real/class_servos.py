@@ -36,6 +36,9 @@ class Servos:
 		# 8 for FeatherWing, 16 for Shield/HAT/Bonnet.
 		self.kit = ServoKit(channels=16)
 		
+		# ajuste fino dos servos
+		self.setTrim()
+		
 		# inicializa o esterçamento
 		self.setSteer(steering)
 		
@@ -44,13 +47,10 @@ class Servos:
 		
 		# marcha re
 		self.reverse = False
-		
-		# ajuste fino dos servos
-		self.setTrim()
 	
 	########################################
 	# seta o ajuste fino dos servos (em radianos)
-	def setTrim(steer=0.0, throttle=0.0, pan=0.0, tilt=0.0):
+	def setTrim(self, steer=0.0, throttle=0.0, pan=0.0, tilt=0.0):
 		
 		# trim do esterçamento
 		self.trim_steer = np.clip(steer, -np.deg2rad(10.0), np.deg2rad(10.0))
@@ -77,30 +77,6 @@ class Servos:
 		
 		# envia comando
 		u = np.clip(u, 0.0, 180.0)
-		self.kit.servo[SERVO_THROTTLE].angle = u
-		
-		return
-		
-	########################################
-	# seta velocidade do veiculo (st in rad)
-	def setU2(self, u):
-		
-		# satura aceleracao
-		#u = np.clip(u, -1.0, 1.0)
-		u = np.clip(u, 0.0, 1.0)
-		
-		'''# passar marcha ré
-		if (u < 0.0) and (not self.reverse):
-			self.reverse = True
-			self.backward()
-		if u >=0:
-			self.reverse = False'''
-			
-		# calibracao
-		u = GAIN_THROTTLE_ANGLE*u + ZERO_THROTTLE_ANGLE
-		
-		# envia comando
-		u = np.clip(u, 0, 180)
 		self.kit.servo[SERVO_THROTTLE].angle = u
 		
 		return
@@ -174,18 +150,16 @@ class Servos:
 	########################################
 	# função para testar os servos por 10s
 	def test(self, total_time=10.0):
-		ti = float(time.time())
-		while (float(time.time()) - ti) <= total_time:
-			
-			t = float(time.time())
-			
+		dt = 0.1
+		for t in np.linspace(0.0, total_time, int(total_time/dt)):
+			print(t)
 			# testa servos
 			self.setSteer(np.deg2rad(MAX_STERRING_ANGLE)*np.sin(0.1*t))
 			self.setU(np.deg2rad(90.0)*np.sin(0.1*t))
 			self.setPan(np.deg2rad(90.0)*np.sin(0.1*t))
 			self.setTilt(np.deg2rad(50.0)*np.sin(0.1*t))
 			
-			time.sleep(0.1)
+			time.sleep(dt)
 	
 	########################################
 	# destrutor
