@@ -21,7 +21,7 @@ CAR = {
 		'VELMAX'	: 5.0,				# m/s
 		'ACCELMAX'	: 0.5, 			# m/s^2
 		'STEERMAX'	: np.deg2rad(20.0),	# deg
-		'MASS'		: 6.35,				# kg
+		'MASS'		: 5.20,				# kg
 		'L'			: 0.36,				# distancia entre os eixos das rodas
 	}
 
