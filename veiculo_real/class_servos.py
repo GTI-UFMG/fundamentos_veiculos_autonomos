@@ -170,5 +170,12 @@ class Servos:
 		self.kit.servo[SERVO_TILT].angle = None
 
 ########################################
-#ser = Servos()
+'''ser = Servos()
+ser.setTrim(throttle=np.deg2rad(10.0))
 #ser.test()
+
+for i in range(100):
+	ser.setU(np.deg2rad(10))
+	time.sleep(1.0)
+	print(i)
+'''

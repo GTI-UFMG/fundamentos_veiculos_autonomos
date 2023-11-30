@@ -19,10 +19,12 @@ import class_camera
 # parametros do carro
 CAR = {
 		'VELMAX'	: 5.0,				# m/s
-		'ACCELMAX'	: 0.5, 			# m/s^2
+		'ACCELMAX'	: 0.25, 				# 
 		'STEERMAX'	: np.deg2rad(20.0),	# deg
 		'MASS'		: 5.20,				# kg
 		'L'			: 0.36,				# distancia entre os eixos das rodas
+		'RMOTOR'	: 10, 				# resitencia do motor
+		'KVMOTOR'	: 2100,
 	}
 
 # parametro de filtragem
@@ -211,8 +213,8 @@ class Car:
 	# seta torque do veiculo
 	def setVel(self, vref):
 		
-		Kp = 0.7
-		Kd = 0.1
+		Kp = 0.1
+		Kd = 0*0.1
 		
 		# referencia de velocidade
 		vref = np.clip(vref, 0.0, CAR['VELMAX'])
@@ -225,21 +227,30 @@ class Car:
 		
 		# seta o comando do servos
 		self.setU(u)
-				
+	
 	########################################
 	# seta torque dos motores do veiculo
 	def setU(self, u):
 		
-		# ganho
-		K = np.deg2rad(20.0)
+		REDUCAO_EIXO_MOTOR = 2.5
+		RAIO_RODA = class_encoder.RAIO_RODA
+		REDUCAO_EIXO = class_encoder.REDUCAO_EIXO
 		
 		# limita aceleracao
 		u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
-		# controle de aceleracao com integrador
-		dpwm = K*(u - self.a)/CAR['ACCELMAX']
-		self.pwm = self.pwm + dpwm*self.dt
-		self.pwm = np.clip(self.pwm, -np.deg2rad(90.0), np.deg2rad(90.0))
+		# Calcula rotacao do eixo do motor
+		rpm = self.v/(RAIO_RODA*np.pi/30.0)
+		rpm *= class_encoder.REDUCAO_EIXO
+		omega = (2.0*np.pi/60.0)*REDUCAO_EIXO_MOTOR*rpm
+		
+		# limita para nao ser zero
+		omega = max(omega, 1000.0)
+		
+		# calcula PWM
+		alpha = 0.1
+		self.pwm = alpha*(CAR['RMOTOR']*CAR['KVMOTOR']*u)/omega
+		self.pwm = np.clip(self.pwm, np.deg2rad(0.0), np.deg2rad(90.0))
 		
 		# seta PWM
 		self.atuador.setU(self.pwm)

@@ -112,8 +112,9 @@ class Camera:
 				int(self.cx + vector_length * np.cos(np.radians(yaw))),
 				int(cy + vector_length * np.sin(np.radians(yaw)))
 			)
+		except: None
 			
-			return self.cx, self.yaw
+		return self.cx, self.yaw
 		
 	########################################
 	# destrutor
