@@ -27,19 +27,13 @@ CAR = {
 # parametro de filtragem
 ALFA = 0.3
 
-# communication port
-PORT = 19997
-
 ########################################
 # Carrinho
 ########################################
 class CarCoppelia:	
 	########################################
 	# construtor
-	def __init__(self, mode = 'zmq'): # mode = legacy or zmq
-		
-		# modo de comunicacao
-		self.mode = mode
+	def __init__(self):
 		
 		# tempo
 		self.t = 0.0
