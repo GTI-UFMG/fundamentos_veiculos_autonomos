@@ -18,6 +18,7 @@ plt.ion()
 ########################################
 # cria comunicação com o carrinho
 car = cp. CarCoppelia()
+
 # começa a simulação
 car.startMission()
 
@@ -35,12 +36,26 @@ while car.t < 50.0:
 	else:
 		car.setU(0.0)
 	
-	# plota
-	plt.clf()
+	# pega imagem
+	image = car.getImage()
+	
+	########################################
+	# plota	
+	plt.subplot(121)
+	plt.cla()
+	plt.gca().imshow(image, origin='lower')
+	plt.title('t = %.1f' % car.t)
+	
+	plt.subplot(122)
+	plt.cla()
 	t = [traj['t'] for traj in car.traj]
 	v = [traj['v'] for traj in car.traj]
 	plt.plot(t,v)
+	plt.ylabel('v[m/s]')
+	plt.xlabel('t[s]')
+	
 	plt.show()
 	plt.pause(0.01)
-	
+
+car.stopMission()
 print('Terminou...')
