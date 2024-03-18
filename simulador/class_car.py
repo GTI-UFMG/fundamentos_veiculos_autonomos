@@ -6,7 +6,6 @@
 # DELT – Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
-
 import sys
 sys.path.append("coppeliasim_zmqremoteapi/")
 from coppeliasim_zmqremoteapi_client import *
@@ -22,6 +21,7 @@ CAR = {
 		'ACCELMAX'	: 0.25, 			# m/s^2
 		'STEERMAX'	: np.deg2rad(20.0),	# deg
 		'MASS'		: 6.35,				# kg
+		'L'			: 0.302,			# distancia entre os eixos das rodas
 	}
 
 # parametro de filtragem
@@ -40,6 +40,7 @@ class CarCoppelia:
 		
 		# velocidade de comando
 		self.vref = 0.0
+		self.v = 0.0
 		
 		# comando de aceleracao
 		self.u = 0.0
@@ -72,6 +73,15 @@ class CarCoppelia:
 		self.motorR = self.sim.getObject('/joint_motor_R')
 		if self.motorR == -1:
 			print ('Remote API function call returned with error code (motorR): ', -1)
+			
+		# steering
+		self.steerL = self.sim.getObject('/joint_steer_L')
+		if self.steerL == -1:
+			print ('Remote API function call returned with error code (steerL): ', -1)
+		
+		self.steerR = self.sim.getObject('/joint_steer_R')
+		if self.steerR == -1:
+			print ('Remote API function call returned with error code (steerR): ', -1)
 		
 		# camera
 		self.cam = self.sim.getObject('/Vision_sensor')
@@ -85,6 +95,7 @@ class CarCoppelia:
 	def getStates(self):
 		self.p = self.getPos()
 		self.th = self.getYaw()
+		self.v_ant = self.v
 		self.v, self.w = self.getVel()
 		self.t = self.getTime() - self.tinit
 				
@@ -213,34 +224,29 @@ class CarCoppelia:
 			lin, ang = self.sim.getObjectVelocity(self.robot)
 			if (lin != -1): # CHECAR ERRO
 				break
-				
-		if np.linalg.norm(lin) > 0.01:
-			# angulo de translacao
-			ps = np.arctan2(lin[1], lin[0])
-			while ps < 0.0:
-				ps += 2.0*np.pi
-			while ps > 2.0*np.pi:
-				ps -= 2.0*np.pi
-			
-			# diferenca entre translacao e orientacao
-			if np.abs(ps - self.th) > np.pi/2:
-				v = -np.linalg.norm(lin)
-			else:
-				v = np.linalg.norm(lin)
-		else:
-			v = 0.0
-			
-		w = ang[2]
 		
-		# filtragem
+		# velocidade linear
+		v = np.linalg.norm(lin)
 		try:
 			v = ALFA*v + (1.0-ALFA)*self.v
 		except: None
+		
+		# velocidade angular
+		w = ang[2]
 		try:
 			w = ALFA*w + (1.0-ALFA)*self.w
 		except: None
 		
 		return  v, w
+	
+	########################################
+	# retorna aceleracao
+	def getAccel(self):
+		BETA = 0.05
+		a = (self.v - self.v_ant)/self.dt
+		# filtro
+		a = BETA*a + (1.0-BETA)*self.a
+		return a
 					
 	########################################
 	# seta torque do veiculo
@@ -267,6 +273,10 @@ class CarCoppelia:
 		# sinal da velocidade
 		su = np.sign(u)*CAR['VELMAX']
 		
+		# impede que o carro se movimente para tras
+		if (self.v < 0.05) and (su < 0.0):
+			self.u = 0.0
+		
 		# atua
 		for m in [self.motorL, self.motorR]:
 					
@@ -284,19 +294,30 @@ class CarCoppelia:
 
 	########################################
 	# seta steer do veiculo
-	def setSteer(self, st):	
+	def setSteer(self, st):
 		
+		width = 0.108
+
 		st = np.clip(st, -CAR['STEERMAX'], CAR['STEERMAX'])
+		stL = np.arctan(CAR['L'] / ( width + CAR['L'] / np.tan(st)))
+		stR = np.arctan(CAR['L'] / (-width + CAR['L'] / np.tan(st)))
 		
-		st = (st + CAR['STEERMAX'])/CAR['STEERMAX']
-		st *= 500.0
-			
+		# Set steering command
 		while True:
-			SteerScript = self.sim.getScript(self.sim.scripttype_childscript,self.sim.getObject("/Car/control_truck"),'/Car/control_truck')
-			_,_,_,err=self.sim.callScriptFunction('setSteer',SteerScript,[],[st],[],None)
-			if err == '': # Caso receba a string vazia, quer dizer que a funcao retornou certo
+			status = self.sim.setJointTargetPosition(self.steerL, stL)
+			if status == 1:
 				break
-					
+				
+		while True:
+			status = self.sim.setJointTargetPosition(self.steerR, stR)
+			if status == 1:
+				break
+	
+	########################################
+	# seta orientacao da camera
+	def setPanTilt(self, pan=np.deg2rad(0.0), tilt=np.deg2rad(-35.0)):
+		return
+			
 	########################################
 	# get image data
 	def getImage(self):
@@ -313,16 +334,15 @@ class CarCoppelia:
 	########################################
 	# termina a classe
 	def __del__(self):
-		
-		time.sleep(.5)
-		
 		# fecha simulador
-		self.sim.stopSimulation()
+		self.stopMission()
 		
 		print ('Program finished!')
 			
 	########################################
 	# termina a classe
 	def __exit__(self):
-		self.stopMission()
+		for _ in range(2):
+			time.sleep(.1)
+			self.stopMission()
 		self.__del__()

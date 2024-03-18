@@ -11,12 +11,14 @@ import class_car as cp
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
-plt.ion()
+
 plt.figure(1)
+plt.ion()
 
 ########################################
 # cria comunicação com o carrinho
 car = cp. CarCoppelia()
+# começa a simulação
 car.startMission()
 
 while car.t < 50.0:
@@ -25,12 +27,11 @@ while car.t < 50.0:
 	car.step()
 	
 	# seta direcao
-	delta = -2.0*(0.0 - car.p[0]) + 5.0*(0.0 - car.w)
-	car.setSteer(-delta)
+	car.setSteer(np.deg2rad(10.0*np.sin(car.t)))
 	
 	# atua
-	if car.t < 2.0:
-		car.setU(0.1)
+	if car.t < 5.0:
+		car.setU(0.2)
 	else:
 		car.setU(0.0)
 	
