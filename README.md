@@ -7,7 +7,8 @@
 
 Simulador CoppeliaSim
 
-<img src="https://github.com/CELTA-UFMG/fundamentos_veiculos_autonomos/assets/64908110/85a35193-d9f2-4d48-920a-73de92e7b9b0" alt="Alt text" width="600">
+<img src="https://github.com/GTI-UFMG/fundamentos_veiculos_autonomos/assets/64908110/b34f42c4-b19c-490e-b646-385c06bc5b52" alt="Alt text" width="600">
+
 
 ##
 
