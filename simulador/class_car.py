@@ -299,8 +299,12 @@ class CarCoppelia:
 		width = 0.108
 
 		st = np.clip(st, -CAR['STEERMAX'], CAR['STEERMAX'])
-		stL = np.arctan(CAR['L'] / ( width + CAR['L'] / np.tan(st)))
-		stR = np.arctan(CAR['L'] / (-width + CAR['L'] / np.tan(st)))
+		
+		if np.tan(st) == 0:
+			stL = stR = 0.0
+		else:
+			stL = np.arctan(CAR['L'] / ( width + CAR['L'] / np.tan(st)))
+			stR = np.arctan(CAR['L'] / (-width + CAR['L'] / np.tan(st)))			
 		
 		# Set steering command
 		while True:

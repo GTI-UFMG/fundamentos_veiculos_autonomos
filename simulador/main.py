@@ -28,10 +28,10 @@ while car.t < 50.0:
 	car.step()
 	
 	# seta direcao
-	car.setSteer(np.deg2rad(10.0*np.sin(car.t)))
+	car.setSteer(np.deg2rad(5.0*np.sin(car.t)))
 	
 	# atua
-	if car.t < 5.0:
+	if car.t < 2.0:
 		car.setU(0.2)
 	else:
 		car.setU(0.0)
