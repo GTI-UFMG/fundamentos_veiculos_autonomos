@@ -18,7 +18,7 @@ import time
 # parametros do carro
 CAR = {
 		'VELMAX'	: 5.0,				# m/s
-		'ACCELMAX'	: 0.25, 			# m/s^2
+		'ACCELMAX'	: 0.5, 			# m/s^2
 		'STEERMAX'	: np.deg2rad(20.0),	# deg
 		'MASS'		: 6.35,				# kg
 		'L'			: 0.302,			# distancia entre os eixos das rodas
