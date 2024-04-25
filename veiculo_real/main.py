@@ -20,7 +20,7 @@ car.startMission()
 
 terminar = False
 
-MAIN_VEL = 0.8
+MAIN_VEL = 1.0
 
 refvel = MAIN_VEL
 refste = np.deg2rad(0.0)
@@ -47,15 +47,15 @@ def control_func():
 		car.setSteer(refste)
 		
 		# atua
-		car.setVel(refvel)
+		#car.setVel(refvel)
 		
-		#if 5.0 < car.t < 10.0:
-		#	car.setU(0.5)
-		#else:
-		#	car.setU(0.0)
+		if 0.0 < car.t < 10.0:
+			car.setVel(refvel)
+		else:
+			car.setU(0.0)
 		
 		# espera
-		time.sleep(0.01)
+		time.sleep(0.005)
 		
 ########################################
 # thread de visão
@@ -115,7 +115,7 @@ thread_vision.start()
 
 ########################################
 # loop principal
-while car.t < 30.0:
+while car.t < 20.0:
 	
 	# plota
 	plt.subplot(211)
@@ -134,8 +134,14 @@ while car.t < 30.0:
 	
 	plt.show()
 	plt.pause(1.0)
-	
-plt.pause(10.0)
+
+# desliga o carro
+car.setU(0.0)
+
+# junta as threads
+thread_control.join()
+#thread_vision.join()
+plt.pause(1.0)
 
 terminar = True
 thread_control.join()

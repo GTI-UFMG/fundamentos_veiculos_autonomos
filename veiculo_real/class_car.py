@@ -19,12 +19,13 @@ import class_camera
 # parametros do carro
 CAR = {
 		'VELMAX'	: 5.0,				# m/s
-		'ACCELMAX'	: 0.25, 				# 
+		'ACCELMAX'	: 0.5, 				# m/s^2
 		'STEERMAX'	: np.deg2rad(20.0),	# deg
 		'MASS'		: 5.20,				# kg
 		'L'			: 0.36,				# distancia entre os eixos das rodas
 		'RMOTOR'	: 10, 				# resitencia do motor
 		'KVMOTOR'	: 2100,
+		'GRAVITY'	: 9.78,				# m/s^2
 	}
 
 # parametro de filtragem
@@ -72,6 +73,9 @@ class Car:
 		# odometro da roda
 		self.odometer = class_encoder.Encoder()
 		print('Odometria ok...', flush=True)
+		
+		# comeca desligado
+		self.setU(0.0)
 		
 		print('Carro pronto!', flush=True)
 	
@@ -213,8 +217,8 @@ class Car:
 	# seta torque do veiculo
 	def setVel(self, vref):
 		
-		Kp = 0.1
-		Kd = 0*0.1
+		Kp = 0.7
+		Kd = 0.1
 		
 		# referencia de velocidade
 		vref = np.clip(vref, 0.0, CAR['VELMAX'])
@@ -237,6 +241,14 @@ class Car:
 		REDUCAO_EIXO = class_encoder.REDUCAO_EIXO
 		
 		# limita aceleracao
+		#u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
+		
+		if np.abs(self.v) > 0.1:
+			Rx = CAR['MASS']*CAR['GRAVITY']*0.005
+		else:
+			Rx = 0.0
+		u -= Rx
+		# limita aceleracao
 		u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
 		# Calcula rotacao do eixo do motor
@@ -248,8 +260,8 @@ class Car:
 		omega = max(omega, 1000.0)
 		
 		# calcula PWM
-		alpha = 0.1
-		self.pwm = alpha*(CAR['RMOTOR']*CAR['KVMOTOR']*u)/omega
+		alpha = 0.02
+		self.pwm += alpha*(CAR['RMOTOR']*CAR['KVMOTOR']*u*self.dt)/omega
 		self.pwm = np.clip(self.pwm, np.deg2rad(0.0), np.deg2rad(90.0))
 		
 		# seta PWM

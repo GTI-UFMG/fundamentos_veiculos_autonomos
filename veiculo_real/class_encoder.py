@@ -16,6 +16,7 @@ BAUDRATE = 57600
 
 REDUCAO_EIXO = 7.8
 RAIO_RODA = 0.08
+MEAN_FILTER = 4
 
 ########################################
 # classe para ler velocidade do robo
@@ -30,7 +31,16 @@ class Encoder:
 		
 		# pega o primeiro valor de velocidade
 		self.vel = 0.0
-		self.vel = self.getVel()
+		self.vant = [0.0] * MEAN_FILTER
+		for i in range(MEAN_FILTER):
+			self.vel = self.getVel()
+	
+	########################################
+	# filtro da media para o sinal de velocidade
+	def filter(self, v):
+		self.vant = self.vant[:-1]
+		self.vant.insert(0, v)
+		return sum(self.vant)/MEAN_FILTER
 		
 	########################################
 	# lê velocidade
@@ -50,6 +60,7 @@ class Encoder:
 		if not np.isnan(vel):
 			self.vel = vel
 		
+		self.vel = self.filter(self.vel)
 		return self.vel
 	
 	########################################
