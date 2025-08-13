@@ -15,3 +15,6 @@ Simulador CoppeliaSim
 Carrinhos reais equipados com sensores e computação embarcada
 
 <img src="https://github.com/CELTA-UFMG/fundamentos_veiculos_autonomos/assets/64908110/93844144-905d-4267-92d3-086e150e8e8d)" alt="Alt text" width="600">
+
+[![Assista ao vídeo](https://img.youtube.com/vi/fqmvOLTYaOk/maxresdefault.jpg)](https://www.youtube.com/watch?v=fqmvOLTYaOk)
+
