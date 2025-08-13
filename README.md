@@ -19,9 +19,7 @@ Carrinhos reais equipados com sensores e computação embarcada
   <img src="https://github.com/user-attachments/assets/2fdc4b8e-37ac-465b-9536-894d82e20e8a" alt="Alt text" width="400">
 </p>
 
-![Image](https://github.com/user-attachments/assets/2fdc4b8e-37ac-465b-9536-894d82e20e8a)
-
-
+##
 
 Vídeo da competição (2024)
 
