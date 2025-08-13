@@ -19,9 +19,10 @@ Carrinhos reais equipados com sensores e computação embarcada
   <img src="https://github.com/CELTA-UFMG/fundamentos_veiculos_autonomos/assets/64908110/93844144-905d-4267-92d3-086e150e8e8d)" alt="Alt text" width="400">
 </p>
 
+Vídeo da competição (2024)
+
 <p align="center">
   <a href="https://www.youtube.com/watch?v=fqmvOLTYaOk">
     <img src="https://img.youtube.com/vi/fqmvOLTYaOk/maxresdefault.jpg" width="400" alt="Assista ao vídeo">
   </a>
 </p>
-
