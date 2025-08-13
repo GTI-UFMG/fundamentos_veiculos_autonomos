@@ -18,3 +18,9 @@ Carrinhos reais equipados com sensores e computação embarcada
 
 [![Assista ao vídeo](https://img.youtube.com/vi/fqmvOLTYaOk/maxresdefault.jpg)](https://www.youtube.com/watch?v=fqmvOLTYaOk)
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=fqmvOLTYaOk">
+    <img src="https://img.youtube.com/vi/fqmvOLTYaOk/maxresdefault.jpg" width="400" alt="Assista ao vídeo">
+  </a>
+</p>
+
