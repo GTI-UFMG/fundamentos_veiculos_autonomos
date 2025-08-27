@@ -109,8 +109,12 @@ class Car:
 		# camera
 		self.cam = self.sim.getObject(car_name+'/Vision_sensor')
 		if self.cam == -1:
-			print ('Remote API function call returned with error code: ', -1)
+			print('Erro: câmera não encontrada')
 			
+		# depois de self.cam = ...
+		self.ultra = self.sim.getObject('/Car/ultra_front')  # ajuste o nome igual ao da cena
+		if self.ultra == -1:
+			print('Erro: ultrassônico não encontrado')
 	
 	########################################
 	# get states
@@ -213,10 +217,10 @@ class Car:
 	########################################
 	# retorna tempo da simulacao no Coppelia
 	def getTime(self):
-		while True:
-			t = self.sim.getSimulationTime()
-			if (t != -1.0): # Em caso de não retornar um erro
-				return t
+		#while True:
+		t = self.sim.getSimulationTime()
+		if (t != -1.0): # Em caso de não retornar um erro
+			return t
 					
 	########################################
 	# retorna posicao do carro
@@ -383,6 +387,17 @@ class Car:
 		img = np.frombuffer(image, dtype=np.uint8)
 		img.resize([resolution[1], resolution[0],3])
 		return img
+		
+	########################################
+	# get ultrasonic distance
+	def getDistance(self, max_dist=4.0):
+		
+		# CoppeliaSim retorna: res, dist, point(list3), obj, normal(list3)
+		hit, dist, p, obj, _n = self.sim.readProximitySensor(self.ultra)  # lê resultado do último handle
+		if hit:
+			return float(dist)
+		else:
+			return max_dist
 		
 	########################################
 	# save traj

@@ -14,7 +14,7 @@ plt.rcParams['figure.figsize'] = (8,6)
 
 # Globais
 parameters = {	'car_id'	: 0,
-				'ts'		: 5.0, 			# tempo da simulacao
+				'ts'		: 60.0, 			# tempo da simulacao
 				'save'		: True,
 				'logfile'	: 'logs/',
 			}
@@ -40,6 +40,10 @@ def vision_func(car):
 		
 	# pega imagem
 	image = car.getImage()
+	
+	# ultrasom
+	dist = car.getDistance()
+	print('Ultrasonic distance: ', np.round(dist,2))
 	
 	return image
 				
