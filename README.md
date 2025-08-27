@@ -2,10 +2,10 @@
 
 - Professores: Armando Alves Neto e Leonardo A. Mozelli
 - Cursos: Engenharia de Controle e Automação
-### Dep. de Engenharia Eletrônica – Escola de Engenharia
-### Universidade Federal de Minas Gerais
+- Dep. de Engenharia Eletrônica – Escola de Engenharia
+- Universidade Federal de Minas Gerais
 
-Simulador CoppeliaSim
+#### Simulador CoppeliaSim
 
 <p align="center">
   <img src="https://github.com/GTI-UFMG/fundamentos_veiculos_autonomos/assets/64908110/b34f42c4-b19c-490e-b646-385c06bc5b52" alt="Alt text" width="400">
