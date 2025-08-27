@@ -5,15 +5,13 @@
 - Dep. de Engenharia Eletrônica – Escola de Engenharia
 - Universidade Federal de Minas Gerais
 
-#### Simulador CoppeliaSim
+#### Veículo no simulador CoppeliaSim
 
 <p align="center">
   <img src="https://github.com/GTI-UFMG/fundamentos_veiculos_autonomos/assets/64908110/b34f42c4-b19c-490e-b646-385c06bc5b52" alt="Alt text" width="400">
 </p>
 
-##
-
-Carrinhos reais equipados com sensores e computação embarcada
+#### Carrinhos reais equipados com sensores e computação embarcada
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/2fdc4b8e-37ac-465b-9536-894d82e20e8a" alt="Alt text" width="400">
