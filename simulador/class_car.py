@@ -23,7 +23,7 @@ CAR = {
 		'MASS'		: 6.3,				# kg
 		'L'			: 0.302,			# distancia entre os eixos das rodas
 		'RW' 		: 0.08,				# raio da roda [m]
-		'MI' 		: 0.03,				# constante de friccao
+		'MI' 		: 0.05,				# constante de friccao
 		'GRAV'   	: 9.81, 			# gravidade [m/s^2]
 	}
 
