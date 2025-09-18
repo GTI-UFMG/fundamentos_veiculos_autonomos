@@ -58,19 +58,22 @@ class Encoder:
 	# lê velocidade
 	def getVel(self):
 		
-		# le a linha mais recente
-		while self.ser.in_waiting:
-			line = self.ser.readline()
+		try:
+			# le a linha mais recente
+			while self.ser.in_waiting:
+				line = self.ser.readline()
+			
+			# recebe o RPM do eixo do motor pela serial (o mais recente)
+			rpm = float(line.decode('utf-8').strip())
+			
+			if (not np.isnan(rpm)) and (not np.isinf(rpm)):
+				# redução do eixo do motor para a roda
+				rpm = rpm/REDUCAO_EIXO
+			
+				# converte velocidade de rpm para m/s
+				self.vel = RAIO_RODA*(np.pi/30.0)*rpm
 		
-		# recebe o RPM do eixo do motor pela serial (o mais recente)
-		rpm = float(line.decode('utf-8').strip())
-		
-		if (not np.isnan(rpm)) and (not np.isinf(rpm)):
-			# redução do eixo do motor para a roda
-			rpm = rpm/REDUCAO_EIXO
-		
-			# converte velocidade de rpm para m/s
-			self.vel = RAIO_RODA*(np.pi/30.0)*rpm
+		except: None
 		
 		return self.vel
 	
