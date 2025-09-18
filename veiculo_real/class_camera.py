@@ -16,7 +16,7 @@ RESOLUTION = (640, 480)  # (width, height)
 FRAME_RATE = 30          # target FPS (best-effort)
 CAMERA_INDEX = 0         # default USB webcam index
 
-MODEL = "outros/best.pt"
+MODEL = "outros/best.pt" # brazilian-traffic-signs.v3i.yolov8
 
 ########################################
 # classe da camera (USB webcam via OpenCV)
