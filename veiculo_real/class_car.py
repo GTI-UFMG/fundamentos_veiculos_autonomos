@@ -316,3 +316,20 @@ class Car:
 	def close(self):
 		self.stopMission()
 		print ('Program finished!')
+		
+########################################
+# main teste
+########################################
+if __name__ == "__main__":
+	
+	# Globais
+	parameters = {	
+				'ts'		: 30.0, 								# tempo da execucao
+				'save'		: True,
+				'logfile'	: 'logs/PF/',
+				'camera'	: False,
+				'ultrasonic_steering' : True,
+			}
+	
+	# cria comunicação com o carrinho
+	car = cp.Car(parameters)
