@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 ########################################
-# Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
-# Fundamentos de Veículos Autônomos - 2025/2
+# Disciplina: TÃ³picos em Engenharia de Controle e AutomaÃ§Ã£o IV (ENG075): 
+# Fundamentos de VeÃ­culos AutÃ´nomos - 2025/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
-# Cursos: Engenharia de Controle e Automação
-# DELT – Escola de Engenharia
+# Cursos: Engenharia de Controle e AutomaÃ§Ã£o
+# DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
 from adafruit_servokit import ServoKit
@@ -15,7 +15,7 @@ import class_filter
 
 # Canais de entradas dos servos
 SERVO_STEERING  	= 0
-SERVO_THROTTLE  	= 1
+SERVO_THROTTLE  	= 4
 SERVO_ULTRASONIC	= 8
 
 ZERO_STERRING_ANGLE = 100.0
@@ -46,14 +46,13 @@ class Servos:
 		# ajuste fino dos servos
 		self.setTrim()
 		
-		# cria filtro de estercamento
-		self.st_filt = class_filter.MovingAverage(n=10, initial=ZERO_STERRING_ANGLE)
-		
 		# lock de secao critica
 		self.lock = threading.Lock()
 		# thread que promove a atuacao suave
-		self.thread = threading.Thread(target=self.actuator)
+		self.thread = threading.Thread(target=self.actuator, daemon=True)
 		
+		# cria filtro de estercamento
+		self.st_filt = class_filter.MovingAverage(n=10, initial=ZERO_STERRING_ANGLE)
 		# inicializa o estercamento
 		self.setSteer(steering)
 		
@@ -68,17 +67,17 @@ class Servos:
 	# seta o ajuste fino dos servos (em radianos)
 	def setTrim(self, steer=np.deg2rad(0.0), throttle=np.deg2rad(0.0), pan=np.deg2rad(0.0)):
 		
-		# trim do esterc§amento
+		# trim do estercamento
 		self.trim_steer = np.clip(steer, -np.deg2rad(10.0), np.deg2rad(10.0))
 		
 		# trim da tracao
 		self.trim_throttle = np.clip(throttle, -np.deg2rad(20.0), np.deg2rad(20.0))
 		
 		# trim do ultrasom
-		self.trim_pan = np.clip(pan, -np.deg2rad(90.0), np.deg2rad(90.0))
+		self.trim_pan = np.clip(pan, -np.deg2rad(20.0), np.deg2rad(20.0))
 		
 	########################################
-	# essa funcao garante a atuacao suave e periodica com self.dt
+	# essa eh a thread que garante a atuacao suave e periodica com self.dt
 	def actuator(self):
 		
 		# pwm inicial
@@ -100,6 +99,8 @@ class Servos:
 				# integra pwm
 				dt = self.dt
 				th_pwm += self.dth_pwm*dt
+			
+			# velocidade apenas positiva
 			th_pwm = np.clip(th_pwm, np.deg2rad(0.0), np.deg2rad(90.0))
 			self.setPWM(th_pwm)
 			
@@ -176,17 +177,12 @@ class Servos:
 	
 	########################################
 	# destrutor
-	def __del__(self):
+	def close(self):
 		# termina de mover os servos e o esc
-		time.sleep(1.0)
-	
-	########################################
-	# termina a classe
-	def __exit__(self):
 		self.setSteer(0.0)
-		self.setTorque(0.0)
-		self.__del__()
-
+		self.setTorque(-10.0)
+		time.sleep(1.0)
+		
 ########################################
 # main teste
 ########################################
@@ -202,9 +198,14 @@ if __name__ == "__main__":
 		t = time.time() - t0
 		print(f"Tempo = {t:.2f} s")
 		
+		# seta estercamento junto com ultrasom
 		ser.setSteer(np.deg2rad(MAX_STERRING_ANGLE)*np.sin(0.5*t), ultrasonic=True)
-		ser.setTorque(0*np.deg2rad(90.0)*np.sin(0.1*t))
+		# seta torque do motor
+		ser.setTorque(0.1*np.sin(0.5*t))
+		# espera
 		time.sleep(ser.dt)
+		
+	ser.close()
 		
 	# calibracao do ESC
 	#ser.kit.servo[SERVO_THROTTLE].angle = 90 #90 (neutro), 180 (maximo), 0 (minimo)
