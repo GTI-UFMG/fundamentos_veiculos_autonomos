@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 ########################################
-# Disciplina: TÃ³picos em Engenharia de Controle e AutomaÃ§Ã£o IV (ENG075): 
-# Fundamentos de VeÃ­culos AutÃ´nomos - 2025/2
+# Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
+# Fundamentos de Veículos Autônomos - 2025/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
-# Cursos: Engenharia de Controle e AutomaÃ§Ã£o
+# Cursos: Engenharia de Controle e Automação
 # DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
@@ -15,7 +15,7 @@ import class_filter
 
 # Canais de entradas dos servos
 SERVO_STEERING  	= 0
-SERVO_THROTTLE  	= 4
+SERVO_THROTTLE  	= 1
 SERVO_ULTRASONIC	= 8
 
 ZERO_STERRING_ANGLE = 100.0
