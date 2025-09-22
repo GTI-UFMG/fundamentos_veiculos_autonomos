@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 ########################################
-# Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
-# Fundamentos de Veículos Autônomos - 2025/2
+# Disciplina: Topicos em Engenharia de Controle e Automacao IV (ENG075): 
+# Fundamentos de Veiculos Autonomos - 2025/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
-# Cursos: Engenharia de Controle e Automação
-# DELT – Escola de Engenharia
+# Cursos: Engenharia de Controle e Automacao
+# DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
 import numpy as np
@@ -53,14 +53,14 @@ class Car:
 		self.v = 0.0
 		self.a = 0.0
 		
-		# variaveis calculadas (sem medição)
+		# variaveis calculadas (sem medicao)
 		self.p = np.zeros(2)
 		self.th = 0.0
 		self.w = 0.0
 		
 		# comando de aceleracao
 		self.u = 0.0
-		# comando de esterçamento
+		# comando de estercamento
 		self.st = 0.0
 		
 		# filtros dos sinais
@@ -73,7 +73,7 @@ class Car:
 		self.logfile = parameters['logfile']
 		# Nome do diretorio com o timestamp
 		self.logfile += datetime.now().strftime("%Y%m%d_%H%M%S") + "/"
-		# Crie a pasta se ela não existir
+		# Crie a pasta se ela nao existir
 		os.makedirs(self.logfile, exist_ok=True)
 		
 		print('Carro pronto!', flush=True)
@@ -82,25 +82,25 @@ class Car:
 	# inicializa sensores e atuadores
 	def initSensors(self):
 		
-		# atuadores de esterçamento, aceleração e ultrasom/camera
+		# atuadores de estercamento, aceleracao e ultrasom/camera
 		self.atuador = class_servos.Servos(ultrasonic=self.parameters['ultrasonic_steering'])
-		print('Servos ok...', flush=True)
+		print("\033[32mServos ok...\033[0m", flush=True)
 		
 		# odometro da roda
 		self.odometer = class_encoder.Encoder()
-		print('Odometria ok...', flush=True)
+		print("\033[32mOdometria ok...\033[0m", flush=True)
 
 		# camera
 		if self.parameters['camera']:
 			import class_camera
 			self.cam = class_camera.Camera()
-			print('Camera ok...', flush=True)
+			print("\033[32mCamera ok...\033[0m", flush=True)
 		else:
-			print('Not using camera...', flush=True)
+			print("\033[31mNot using camera...\033[0m", flush=True)
 			
 		# ultrasom
 		self.us = class_ultrasonic.Ultrasonic()
-		print('Ultrasom ok...', flush=True)
+		print("\033[32mUltrasom ok...\033[0m", flush=True)
 		
 		print('##############################')
 
@@ -172,16 +172,15 @@ class Car:
 	def saveTraj(self):
 		
 		# dados
-		with self.lock:
-			data = {	't'     : self.t, 
-						'p'     : self.p, 
-						'v'     : self.v,
-						'a'		: self.a,
-						'vref'  : self.vref,
-						'th'    : self.th,
-						'w'     : self.w,
-						'u'     : self.u,
-					}
+		data = {	't'     : self.t, 
+					'p'     : self.p, 
+					'v'     : self.v,
+					'a'		: self.a,
+					'vref'  : self.vref,
+					'th'    : self.th,
+					'w'     : self.w,
+					'u'     : self.u,
+				}
 				
 		# se ja iniciou as trajetorias
 		try:
@@ -218,7 +217,7 @@ class Car:
 	# retorna velocidades linear e angular
 	def getVel(self):
 		
-		# lê velocidade do encoder
+		# le velocidade do encoder
 		v = self.odometer.getVel()
 		vf = self.v_filt.filter(v)
 		
@@ -265,7 +264,7 @@ class Car:
 		# limita aceleracao
 		self.u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
-		# medida de segurança
+		# medida de seguranca
 		if self.v > CAR['VELMAX']:
 			self.u = 0.0
 			
@@ -286,7 +285,7 @@ class Car:
 	# seta steer do veiculo
 	def setSteer(self, st):
 		
-		# limita angulo de esterçamento
+		# limita angulo de estercamento
 		self.st = np.clip(st, -CAR['STEERMAX'], CAR['STEERMAX'])
 		
 		# atua no volante
@@ -296,6 +295,11 @@ class Car:
 	# get image data
 	def getImage(self, gray=False):
 		return self.cam.getImage(gray)
+		
+	########################################
+	# get ultrasonic distance
+	def getDistance(self, max_dist=4.0):
+		return np.min([self.us.getDistance(), max_dist])
 	
 	########################################
 	# save traj
@@ -324,12 +328,35 @@ if __name__ == "__main__":
 	
 	# Globais
 	parameters = {	
-				'ts'		: 30.0, 								# tempo da execucao
+				'ts'		: 30.0, 			# tempo da execucao
 				'save'		: True,
-				'logfile'	: 'logs/PF/',
+				'logfile'	: 'logs/PF/',		# log file
 				'camera'	: False,
 				'ultrasonic_steering' : True,
 			}
 	
-	# cria comunicação com o carrinho
-	car = cp.Car(parameters)
+	# cria comunicacao com o carrinho
+	car = Car(parameters)
+	car.startMission()
+	
+	# testa leitura
+	t0 = time.time()
+	while (time.time() - t0) <= 20.0:
+		
+		t = time.time() - t0
+		
+		# le ultrasom
+		dist = car.getDistance()
+		print(f"Distance: {dist:.2f} [m]")
+		
+		# seta torque do motor
+		if dist > 0.30:
+			car.setU(0.5*np.sin(0.5*t))
+		else:
+			car.setU(-1.0)
+			
+		# seta estercamento junto com ultrasom
+		car.setSteer(np.deg2rad(20.0)*np.sin(0.5*t))
+				
+		time.sleep(.1)
+
