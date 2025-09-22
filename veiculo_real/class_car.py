@@ -1,35 +1,34 @@
 # -*- coding: utf-8 -*-
+########################################
 # Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
-# Fundamentos de Veículos Autônomos - 2023/2
+# Fundamentos de Veículos Autônomos - 2025/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
 # Cursos: Engenharia de Controle e Automação
 # DELT – Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
-
-import time
 import numpy as np
+import time, os
+from datetime import datetime
 import class_encoder
 import class_servos
-import class_camera
+import class_filter
+import class_ultrasonic
 
 ########################################
 # GLOBAIS
 ########################################
 # parametros do carro
 CAR = {
-		'VELMAX'	: 5.0,				# m/s
-		'ACCELMAX'	: 0.5, 				# m/s^2
+		'VELMAX'	: 3.0,				# m/s
+		'ACCELMAX'	: 1.0, 				# m/s^2
 		'STEERMAX'	: np.deg2rad(20.0),	# deg
-		'MASS'		: 5.20,				# kg
+		'MASS'		: 5.16,				# kg
 		'L'			: 0.36,				# distancia entre os eixos das rodas
-		'RMOTOR'	: 10, 				# resitencia do motor
-		'KVMOTOR'	: 2100,
-		'GRAVITY'	: 9.78,				# m/s^2
+		'RW' 		: 0.08,				# raio da roda [m]
+		'MI' 		: 0.04,				# constante de friccao
+		'GRAV'   	: 9.81, 			# gravidade [m/s^2]
 	}
-
-# parametro de filtragem
-ALFA = 0.3
 
 ########################################
 # Carrinho
@@ -37,13 +36,17 @@ ALFA = 0.3
 class Car:	
 	########################################
 	# construtor
-	def __init__(self):
+	def __init__(self, parameters):
+		
+		self.parameters = parameters
+		
+		# inicializa sensores
+		self.initSensors()
 		
 		# tempo
 		self.t = 0.0
-		
 		# tempo de amostragem
-		self.dt = 0.1
+		self.dt = 0.05
 		
 		# velocidade de comando
 		self.vref = 0.0
@@ -51,45 +54,67 @@ class Car:
 		self.a = 0.0
 		
 		# variaveis calculadas (sem medição)
+		self.p = np.zeros(2)
 		self.th = 0.0
 		self.w = 0.0
-		self.p = np.array((0.0, 0.0))
 		
 		# comando de aceleracao
 		self.u = 0.0
-		self.pwm = 0.0
-		
 		# comando de esterçamento
 		self.st = 0.0
 		
-		# atuadores de esterçamento e aceleração
-		self.atuador = class_servos.Servos()
-		print('Servos ok...', flush=True)
+		# filtros dos sinais
+		self.v_filt    = class_filter.MovingAverage(n=15)
+		self.a_filt    = class_filter.MovingAverage(n=30)
+		self.vref_filt = class_filter.MovingAverage(n=50)
+		self.w_filt    = class_filter.MovingAverage(n=20)
 		
-		# camera
-		self.cam = class_camera.Camera()
-		print('Camera ok...', flush=True)
+		# logs de salvamento
+		self.logfile = parameters['logfile']
+		# Nome do diretorio com o timestamp
+		self.logfile += datetime.now().strftime("%Y%m%d_%H%M%S") + "/"
+		# Crie a pasta se ela não existir
+		os.makedirs(self.logfile, exist_ok=True)
+		
+		print('Carro pronto!', flush=True)
+		
+	########################################
+	# inicializa sensores e atuadores
+	def initSensors(self):
+		
+		# atuadores de esterçamento, aceleração e ultrasom/camera
+		self.atuador = class_servos.Servos(ultrasonic=self.parameters['ultrasonic_steering'])
+		print('Servos ok...', flush=True)
 		
 		# odometro da roda
 		self.odometer = class_encoder.Encoder()
 		print('Odometria ok...', flush=True)
+
+		# camera
+		if self.parameters['camera']:
+			import class_camera
+			self.cam = class_camera.Camera()
+			print('Camera ok...', flush=True)
+		else:
+			print('Not using camera...', flush=True)
+			
+		# ultrasom
+		self.us = class_ultrasonic.Ultrasonic()
+		print('Ultrasom ok...', flush=True)
 		
-		# comeca desligado
-		self.setU(0.0)
-		
-		print('Carro pronto!', flush=True)
-	
+		print('##############################')
+
 	########################################
 	# get states
 	def getStates(self):
-		
+
 		# velocidade 
 		self.v_ant = self.v
 		self.v, self.w = self.getVel()
-		
+
 		# aceleracao
 		self.a = self.getAccel()
-		
+
 		# orientacao
 		self.th = self.getYaw()
 		
@@ -99,7 +124,7 @@ class Car:
 		# tempo
 		self.t = self.getTime() - self.tinit
 				
-		return self.p, self.v, self.th, self.w, self.t
+		return self.p, self.v, self.a, self.th, self.w, self.t
 	
 	########################################
 	# comeca a missao
@@ -115,9 +140,6 @@ class Car:
 		self.setU(0.0)
 		self.setSteer(0.0)
 		
-		# seta orientacao da camera
-		self.setPanTilt()
-		
 		# salva trajetoria
 		self.saveTraj()
 		
@@ -126,8 +148,9 @@ class Car:
 	def stopMission(self):
 		
 		# termina parado
-		self.setU(0.0)
+		self.setU(-CAR['ACCELMAX'])
 		self.setSteer(0.0)
+		time.sleep(2.0)
 	
 	########################################
 	def step(self):
@@ -149,14 +172,16 @@ class Car:
 	def saveTraj(self):
 		
 		# dados
-		data = {	't'     : self.t, 
-					'p'     : self.p, 
-					'v'     : self.v,
-					'vref'  : self.vref,
-					'th'    : self.th,
-					'w'     : self.w,
-					'u'     : self.u,
-					'a'     : self.a}
+		with self.lock:
+			data = {	't'     : self.t, 
+						'p'     : self.p, 
+						'v'     : self.v,
+						'a'		: self.a,
+						'vref'  : self.vref,
+						'th'    : self.th,
+						'w'     : self.w,
+						'u'     : self.u,
+					}
 				
 		# se ja iniciou as trajetorias
 		try:
@@ -173,24 +198,21 @@ class Car:
 	########################################
 	# retorna posicao do carro - sem GPS
 	def getPos(self):
-		
 		x = self.p[0] + self.v*np.cos(self.th)*self.dt
 		y = self.p[1] + self.v*np.sin(self.th)*self.dt
-		
 		return np.array((x, y))			
 				
 	########################################
 	# retorna yaw - sem bussola
 	def getYaw(self):
+		yaw = self.th + self.w*self.dt
 		
-		th = self.th + self.w*self.dt
+		while yaw < 0.0:
+			yaw += 2.0*np.pi
+		while yaw > 2.0*np.pi:
+			yaw -= 2.0*np.pi
 		
-		while th < 0.0:
-			th += 2.0*np.pi
-		while th > 2.0*np.pi:
-			th -= 2.0*np.pi
-		
-		return th
+		return yaw
 		
 	########################################
 	# retorna velocidades linear e angular
@@ -198,107 +220,99 @@ class Car:
 		
 		# lê velocidade do encoder
 		v = self.odometer.getVel()
-
-		# sem IMU, calcular artificialmente
-		w = v*np.tan(self.st)/CAR['L']
-
-		return v, w
+		vf = self.v_filt.filter(v)
 		
+		# velocidade angular sem IMU, calculada artificialmente
+		w = (v/CAR['L'])*np.tan(self.st)
+		wf = self.w_filt.filter(w)
+		
+		return  vf, wf
+	
 	########################################
-	# retorna velocidades linear e angular
+	# retorna aceleracao
 	def getAccel(self):
-		BETA = 0.05
+		
+		if self.dt == 0.0:
+			return 0.0
+		
+		# aceleracao sem IMU, calculada artificialmente
 		a = (self.v - self.v_ant)/self.dt
-		# filtro
-		a = BETA*a + (1.0-BETA)*self.a
-		return a
+		af = self.a_filt.filter(a)
+		
+		return af
 					
 	########################################
 	# seta torque do veiculo
 	def setVel(self, vref):
 		
-		Kp = 0.7
-		Kd = 0.1
+		# ganhos
+		Kp = 3.5
+		Kd = 2.5
 		
 		# referencia de velocidade
-		vref = np.clip(vref, 0.0, CAR['VELMAX'])
-		
-		# filtragem
-		self.vref = ALFA*vref + (1.0-ALFA)*self.vref
+		self.vref = self.vref_filt.filter(vref)
+		self.vref = np.clip(self.vref, 0.0, CAR['VELMAX'])
 		
 		# controle de velocidade
-		u = Kp*(self.vref - self.v) + Kd*(0.0 - self.u)
-		
-		# seta o comando do servos
+		du = Kp*(self.vref - self.v) + Kd*(-self.a)
+		u = self.u + du*self.dt
 		self.setU(u)
 	
 	########################################
 	# seta torque dos motores do veiculo
 	def setU(self, u):
 		
-		REDUCAO_EIXO_MOTOR = 2.5
-		RAIO_RODA = class_encoder.RAIO_RODA
-		REDUCAO_EIXO = class_encoder.REDUCAO_EIXO
-		
 		# limita aceleracao
-		#u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
+		self.u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
-		if np.abs(self.v) > 0.1:
-			Rx = CAR['MASS']*CAR['GRAVITY']*0.005
-		else:
-			Rx = 0.0
-		u -= Rx
-		# limita aceleracao
-		u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
+		# medida de segurança
+		if self.v > CAR['VELMAX']:
+			self.u = 0.0
+			
+		# controlador linearizante
+		F = CAR['MASS']*self.u
 		
-		# Calcula rotacao do eixo do motor
-		rpm = self.v/(RAIO_RODA*np.pi/30.0)
-		rpm *= class_encoder.REDUCAO_EIXO
-		omega = (2.0*np.pi/60.0)*REDUCAO_EIXO_MOTOR*rpm
+		# torque de referencia
+		T = CAR['RW']*np.sum(F)
 		
-		# limita para nao ser zero
-		omega = max(omega, 1000.0)
+		# impede que o carro se movimente para tras
+		if (np.sign(self.v) < 0.0) and (np.sign(u) < 0.0):
+			T = 0.0
 		
-		# calcula PWM
-		alpha = 0.02
-		self.pwm += alpha*(CAR['RMOTOR']*CAR['KVMOTOR']*u*self.dt)/omega
-		self.pwm = np.clip(self.pwm, np.deg2rad(0.0), np.deg2rad(90.0))
-		
-		# seta PWM
-		self.atuador.setU(self.pwm)
+		# seta o torque
+		self.atuador.setTorque(T, dt=self.dt)
 
 	########################################
 	# seta steer do veiculo
-	def setSteer(self, st):	
+	def setSteer(self, st):
 		
 		# limita angulo de esterçamento
 		self.st = np.clip(st, -CAR['STEERMAX'], CAR['STEERMAX'])
 		
 		# atua no volante
 		self.atuador.setSteer(self.st)
-	
-	########################################
-	# seta orientacao da camera
-	def setPanTilt(self, pan=np.deg2rad(0.0), tilt=np.deg2rad(-35.0)):
-		self.atuador.setPan(pan)
-		self.atuador.setTilt(tilt)
 		
 	########################################
 	# get image data
 	def getImage(self, gray=False):
-		# pega imagem
 		return self.cam.getImage(gray)
+	
+	########################################
+	# save traj
+	def save(self):
+		filename = self.logfile + ('car%d.npz') % self.id
+		data = [traj for traj in self.traj]
+		np.savez(filename, data=data)
+		
+	########################################
+	# load traj
+	def load(self):
+		filename = self.logfile + ('car%d.npz') % self.id
+		data = np.load(filename, allow_pickle=True)
+		self.traj = data['data']
 		
 	########################################
 	# termina a classe
-	def __del__(self):
+	def close(self):
 		self.stopMission()
-		
-		time.sleep(1.0)
-		
-		print ('Programa terminado!')
-			
-	########################################
-	# termina a classe
-	def __exit__(self):
-		self.__del__()
+		print ('Program finished!')
