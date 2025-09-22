@@ -31,7 +31,7 @@ GAIN_TORQUE = 0.4
 class Servos:
 	########################################
 	# construtor
-	def __init__(self, steering=0.0, throttle=0.0, use_thread=True):
+	def __init__(self, steering=0.0, throttle=0.0, ultrasonic=True, use_thread=True):
 		
 		# Set channels to the number of servo channels on your kit.
 		# 8 for FeatherWing, 16 for Shield/HAT/Bonnet.
@@ -45,6 +45,9 @@ class Servos:
 		
 		# ajuste fino dos servos
 		self.setTrim()
+		
+		# define se o ultrasom vai se mover junto com o estercamento
+		self.ultrasonic = ultrasonic
 		
 		# lock de secao critica
 		self.lock = threading.Lock()
@@ -133,11 +136,13 @@ class Servos:
 	
 	########################################
 	# seta steer do veiculo (st in rad)
-	def setSteer(self, st, ultrasonic=True):
+	def setSteer(self, st):
 		
-		# roda o ultrasom conforme o estercamento (em RAD)
-		if ultrasonic:
+		# direciona o ultrasom conforme o estercamento (em RAD)
+		if self.ultrasonic:
 			self.setPan(st)
+		else:
+			self.setPan(0.0)
 			
 		# converte para graus
 		st = np.rad2deg(st + self.trim_steer)
@@ -153,7 +158,7 @@ class Servos:
 	########################################
 	# angulo de pan do ultrasom
 	def setPan(self, ang):
-		
+			
 		# converte para graus
 		ang = np.rad2deg(ang + self.trim_pan)
 		
