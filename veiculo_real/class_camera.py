@@ -87,6 +87,13 @@ class Camera:
 			self.detect_fn  = lambda img: cv2.aruco.detectMarkers(img, dictionary, parameters=parameters)
 
 	########################################
+	# pega resolucao da imagem
+	def getResolution(self):
+		w = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+		h = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+		return int(w), int(h)
+
+	########################################
 	# captura uma imagem da camera
 	def getImage(self, gray: bool = False):
 		ok, frame = self.cap.read()
@@ -113,9 +120,7 @@ class Camera:
 
 	########################################
 	# detecta marcadores de AR
-	def detectAruco(self, img):
-		
-		ARUCO_ID = 23
+	def detectAruco(self, img, aruco_id=23):
 		
 		# Detect ArUco markers in the frame.
 		corners, ids, rejected = self.detect_fn(img)
@@ -125,7 +130,7 @@ class Camera:
 			cv2.aruco.drawDetectedMarkers(img, corners, ids)  # <- aqui desenha
 			# opcional: destacar apenas um id
 			for i, m_id in enumerate(ids.flatten()):
-				if m_id == ARUCO_ID:
+				if m_id == aruco_id:
 					pts = corners[i][0].astype(int)
 					cx, cy = pts[:,0].mean(), pts[:,1].mean()
 					cv2.circle(img, (int(cx), int(cy)), 6, (0,255,0), -1)
@@ -133,8 +138,11 @@ class Camera:
 			# se quiser, mostre rejeitados (em vermelho)
 			#cv2.aruco.drawDetectedMarkers(img, rejected, borderColor=(0,0,255))
 			pass
-			
-		return img
+		
+		try:
+			return img, (cx, cy)
+		except:
+			return img, None
 		
 	########################################
 	# show image

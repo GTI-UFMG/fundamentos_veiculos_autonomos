@@ -1,35 +1,21 @@
 # -*- coding: utf-8 -*-
-# Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
-# Fundamentos de Veículos Autônomos - 2023/2
+########################################
+# Disciplina: Topicos em Engenharia de Controle e Automacao IV (ENG075): 
+# Fundamentos de Veiculos Autonomos - 2025/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
-# Cursos: Engenharia de Controle e Automação
-# DELT – Escola de Engenharia
+# Cursos: Engenharia de Controle e Automacao
+# DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
-
-import class_car as cp
+import class_car
 import numpy as np
-import cv2
 import matplotlib.pyplot as plt
 import threading
 import time
 
-# cria carrinho
-car = cp. Car()
-car.startMission()
-
-terminar = False
-
 MAIN_VEL = 1.0
-
-refvel = MAIN_VEL
 refste = np.deg2rad(0.0)
-frame = car.getImage(gray=True)
-W = frame.shape[1]
-H = frame.shape[0]
-
-plt.ion()
-plt.figure(1)
+frame = None
 
 ########################################
 # thread de controle de velocidade
@@ -37,114 +23,100 @@ def control_func():
 	
 	global car
 	global refste
-	global refvel
 	
-	while not terminar:
-		# lê sensores
+	while True:
+		# le sensores
 		car.step()
 		
 		# seta direcao
 		car.setSteer(refste)
 		
 		# atua
-		#car.setVel(refvel)
-		
-		if 0.0 < car.t < 10.0:
-			car.setVel(refvel)
-		else:
-			car.setU(0.0)
+		car.setVel(MAIN_VEL)
 		
 		# espera
 		time.sleep(0.005)
 		
 ########################################
-# thread de visão
+# thread de visao
 def vision_func():
 	
 	global car
 	global refste
-	global refvel
 	global frame
 	
-	# Load the dictionary of ArUco markers.
-	aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_100)
-	# Create a parameters object for ArUco detection.
-	parameters = cv2.aruco.DetectorParameters_create()
+	# pega resolucao da imagem
+	W, H = car.cam.getResolution()
 	
-	while not terminar:
-		
+	# loop principal
+	while True:
 		# pega image
 		frame = car.getImage(gray=True)
 		
-		# Detect ArUco markers in the frame.
-		corners, ids, rejectedImgPoints = cv2.aruco.detectMarkers(frame, aruco_dict, parameters=parameters)
-		
-		# velocidade padrão
-		refvel = MAIN_VEL
+		# detecta aruco
+		frame, point = car.cam.detectAruco(frame, aruco_id=23)
 		
 		# nao vi nada, continua
-		if ids is None:
+		if point is None:
 			continue
-		
-		# Iterate through detected markers
-		for i, marker_id in enumerate(ids):
 			
-			# se vir o aruco 24
-			if np.squeeze(marker_id) == 24:
-							
-				# Get the corner coordinates of the current marker
-				marker_corners = corners[i][0]
-				
-				# Calculate the centroid of the marker
-				centroid_x = int(sum(marker_corners[:, 0]) / 4)
-				centroid_y = int(sum(marker_corners[:, 1]) / 4)
-				
-				# aumenta velocidade de referencia
-				refvel = 1.5*MAIN_VEL
-				
-				# estercamento aponta para o aruco
-				cx = centroid_x - W/2
-				refste = -np.deg2rad(20.0*cx/(W/2))
+		# estercamento aponta para o aruco
+		cx = point[0] - W/2
+		refste = -np.deg2rad(20.0*cx/(W/2))
 
 ########################################
-# disparar threads
-thread_control = threading.Thread(target=control_func)
-thread_vision = threading.Thread(target=vision_func)
-thread_control.start()
-thread_vision.start()
-
+# main program
 ########################################
-# loop principal
-while car.t < 20.0:
+if __name__ == "__main__":
 	
-	# plota
-	plt.subplot(211)
-	plt.cla()
-	plt.gca().imshow(frame, cmap='gray')
+	# Globais
+	parameters = {	
+				'ts'					: 5.0, 			# tempo da execucao
+				'save'					: True,			# salva dados da trajetoria
+				'logfile'				: 'logs/',	# log file
+				'camera'				: False,		# habilitar camera e thread de visao
+				'ultrasonic_steering' 	: True,			# mover ultrasom com estercamento
+			}
+	
+	# cria comunicacao com o carrinho
+	car = class_car.Car(parameters)
+	car.startMission()
+
+	# disparar threads
+	thread_control = threading.Thread(target=control_func, daemon=True)
+	thread_control.start()
+	
+	if parameters['camera']:
+		thread_vision = threading.Thread(target=vision_func, daemon=True)
+		thread_vision.start()
+
+	plt.ion()
+	plt.figure(1)
+
+	# loop principal
+	while car.t < parameters['ts']:
 		
-	plt.subplot(212)
-	plt.cla()
-	t = [traj['t'] for traj in car.traj]
-	v = [traj['v'] for traj in car.traj]
-	vref = [traj['vref'] for traj in car.traj]
-	plt.plot(t, v, 'k')
-	plt.plot(t, vref, 'r--')
-	plt.ylabel('Vel')
-	plt.xlabel('Time')
+		# plota
+		if parameters['camera']:
+			plt.subplot(211)
+			plt.cla()
+			plt.gca().imshow(frame, cmap='gray')
+			
+			plt.subplot(212)
+			
+		plt.cla()
+		t = [traj['t'] for traj in car.traj]
+		v = [traj['v'] for traj in car.traj]
+		vref = [traj['vref'] for traj in car.traj]
+		plt.plot(t, v, 'k')
+		plt.plot(t, vref, 'r--')
+		plt.ylabel('Vel')
+		plt.xlabel('Time')
+		
+		plt.show()
+		plt.pause(1.0)
+
+	# desliga o carro
+	car.close()
 	
-	plt.show()
-	plt.pause(1.0)
-
-# desliga o carro
-car.setU(0.0)
-
-# junta as threads
-thread_control.join()
-#thread_vision.join()
-plt.pause(1.0)
-
-terminar = True
-thread_control.join()
-thread_vision.join()
-del car
-print('Terminou...')
+	print('Terminou...')

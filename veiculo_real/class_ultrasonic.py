@@ -150,7 +150,7 @@ class Ultrasonic:
 	########################################
 	# Destrutor
 	########################################
-	def __del__(self):
+	def close(self):
 		#Ensure cleanup is called when object is deleted
 		self.cleanup()
 
@@ -187,3 +187,4 @@ if __name__ == '__main__':
 		print(f"Distance: {dist[-1]:.2f} [m]")
 		
 	plt.ioff()
+	us.close()

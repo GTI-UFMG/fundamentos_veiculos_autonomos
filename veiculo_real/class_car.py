@@ -66,7 +66,7 @@ class Car:
 		# filtros dos sinais
 		self.v_filt    = class_filter.MovingAverage(n=15)
 		self.a_filt    = class_filter.MovingAverage(n=30)
-		self.vref_filt = class_filter.MovingAverage(n=50)
+		self.vref_filt = class_filter.MovingAverage(n=80)
 		self.w_filt    = class_filter.MovingAverage(n=20)
 		
 		# logs de salvamento
@@ -245,16 +245,15 @@ class Car:
 	def setVel(self, vref):
 		
 		# ganhos
-		Kp = 3.5
-		Kd = 2.5
+		Kp = 3.0
+		Kd = 1.0
 		
 		# referencia de velocidade
 		self.vref = self.vref_filt.filter(vref)
 		self.vref = np.clip(self.vref, 0.0, CAR['VELMAX'])
 		
 		# controle de velocidade
-		du = Kp*(self.vref - self.v) + Kd*(-self.a)
-		u = self.u + du*self.dt
+		u = Kp*(self.vref - self.v) + Kd*(-self.a)
 		self.setU(u)
 	
 	########################################
@@ -319,6 +318,13 @@ class Car:
 	# termina a classe
 	def close(self):
 		self.stopMission()
+		
+		self.odometer.close()
+		self.atuador.close()
+		self.us.close()
+		if self.parameters['camera']:
+			self.cam.close()
+		
 		print ('Program finished!')
 		
 ########################################
@@ -360,3 +366,4 @@ if __name__ == "__main__":
 				
 		time.sleep(.1)
 
+	car.close()

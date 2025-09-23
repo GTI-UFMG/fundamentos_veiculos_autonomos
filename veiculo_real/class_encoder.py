@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 ########################################
-# Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
-# Fundamentos de Veículos Autônomos - 2025/2
+# Disciplina: Topicos em Engenharia de Controle e Automacao IV (ENG075): 
+# Fundamentos de Veiculos Autonomos - 2025/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
-# Cursos: Engenharia de Controle e Automação
-# DELT – Escola de Engenharia
+# Cursos: Engenharia de Controle e Automacao
+# DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
 import numpy as np
@@ -45,8 +45,8 @@ class Encoder:
 		# procura porta do arduino
 		port = find_arduino()
 		if not port:
-			raise RuntimeError("Arduino Nano não encontrado!")
-		print("Encoder conectando em", port)
+			raise RuntimeError("Arduino Nano nao encontrado!")
+		print("\033[32mEncoder conectando em: %s\033[0m" % port)
 		
 		# abrindo porta serial
 		self.ser = serial.Serial(port, BAUDRATE, timeout=TIMEOUT)
@@ -55,7 +55,7 @@ class Encoder:
 		self.vel = 0.0
 		
 	########################################
-	# lê velocidade
+	# le velocidade
 	def getVel(self):
 		
 		try:
@@ -67,7 +67,7 @@ class Encoder:
 			rpm = float(line.decode('utf-8').strip())
 			
 			if (not np.isnan(rpm)) and (not np.isinf(rpm)):
-				# redução do eixo do motor para a roda
+				# reducao do eixo do motor para a roda
 				rpm = rpm/REDUCAO_EIXO
 			
 				# converte velocidade de rpm para m/s
@@ -79,7 +79,7 @@ class Encoder:
 	
 	########################################
 	# destrutor
-	def __del__(self):
+	def close(self):
 		try:
 			if self.ser and self.ser.is_open:
 				self.ser.close()
@@ -96,8 +96,10 @@ if __name__=="__main__":
 	# cria encoder
 	enc = Encoder()
 	
-	# função para testar o encoder por 10s
+	# funcao para testar o encoder por 10s
 	t0 = time.time()
 	while (time.time() - t0) <= 10.0:
 		print(f"Velocidade = {enc.getVel():.2f} m/s")
 		time.sleep(0.1)
+		
+	enc.close()
