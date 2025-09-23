@@ -24,7 +24,11 @@ MODEL = "outros/best.pt" # brazilian-traffic-signs.v3i.yolov8
 class Camera:
 	########################################
 	# construtor
-	def __init__(self, cam_index: int = CAMERA_INDEX, resolution=RESOLUTION, fps: int = FRAME_RATE):
+	def __init__(	self, 
+					cam_index: int = CAMERA_INDEX, 
+					resolution=RESOLUTION, 
+					fps: int = FRAME_RATE):
+		
 		self.cap = cv2.VideoCapture(cam_index, cv2.CAP_V4L2)
 
 		if not self.cap.isOpened():
@@ -65,9 +69,22 @@ class Camera:
 		t0 = time.time()
 		while time.time() - t0 < 0.5:
 			self.cap.read()
-			
+		
+		################
 		# modelo da YOLO
 		self.model = YOLO(MODEL)
+		
+		################
+		# Load the dictionary of ArUco markers and create a parameters object for ArUco detection.
+		if hasattr(cv2.aruco, "ArucoDetector"):
+			dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
+			parameters = cv2.aruco.DetectorParameters()
+			detector   = cv2.aruco.ArucoDetector(dictionary, parameters)
+			self.detect_fn  = lambda img: detector.detectMarkers(img)
+		else:
+			dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_100)
+			parameters = cv2.aruco.DetectorParameters_create()
+			self.detect_fn  = lambda img: cv2.aruco.detectMarkers(img, dictionary, parameters=parameters)
 
 	########################################
 	# captura uma imagem da camera
@@ -81,7 +98,44 @@ class Camera:
 		if gray:
 			frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 		return frame
+			
+	########################################
+	# modelo detector de placas de transito
+	def detectPlaca(self, img):
+		
+		# inferência
+		results = self.model.predict(img, conf=0.25, iou=0.45, imgsz=640, verbose=False)
+		
+		# desenha resultados
+		annotated = results[0].plot()
+		
+		return annotated
 
+	########################################
+	# detecta marcadores de AR
+	def detectAruco(self, img):
+		
+		ARUCO_ID = 23
+		
+		# Detect ArUco markers in the frame.
+		corners, ids, rejected = self.detect_fn(img)
+		
+		# desenha contornos + ids na imagem colorida
+		if ids is not None and len(ids) > 0:
+			cv2.aruco.drawDetectedMarkers(img, corners, ids)  # <- aqui desenha
+			# opcional: destacar apenas um id
+			for i, m_id in enumerate(ids.flatten()):
+				if m_id == ARUCO_ID:
+					pts = corners[i][0].astype(int)
+					cx, cy = pts[:,0].mean(), pts[:,1].mean()
+					cv2.circle(img, (int(cx), int(cy)), 6, (0,255,0), -1)
+		else:
+			# se quiser, mostre rejeitados (em vermelho)
+			#cv2.aruco.drawDetectedMarkers(img, rejected, borderColor=(0,0,255))
+			pass
+			
+		return img
+		
 	########################################
 	# show image
 	def show(self, img, fps=None):
@@ -98,20 +152,8 @@ class Camera:
 			raise KeyboardInterrupt
 			
 	########################################
-	# modelo detector de placas de transito
-	def detectPlaca(self, img):
-		
-		# inferência
-		results = self.model.predict(img, conf=0.25, iou=0.45, imgsz=640, verbose=False)
-		
-		# desenha resultados
-		annotated = results[0].plot()
-		
-		return annotated
-
-	########################################
 	# destrutor
-	def __del__(self):
+	def close(self):
 		try:
 			if hasattr(self, 'cap') and self.cap is not None:
 				self.cap.release()
@@ -138,7 +180,10 @@ if __name__ == "__main__":
 			continue
 		
 		# detecta placas
-		img = cam.detectPlaca(img)
+		#img = cam.detectPlaca(img)
+		
+		# detecta Arucos
+		img = cam.detectAruco(img)
 
 		# cálculo de FPS real
 		frame_count += 1
@@ -151,3 +196,6 @@ if __name__ == "__main__":
 		  
 		# mostra imagem
 		cam.show(img, fps=fps)
+		
+	# fecha tudo
+	cam.close()
