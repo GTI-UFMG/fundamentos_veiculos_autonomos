@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 ########################################
 # Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
@@ -191,7 +190,7 @@ if __name__ == "__main__":
 		#img = cam.detectPlaca(img)
 		
 		# detecta Arucos
-		img = cam.detectAruco(img)
+		img, _ = cam.detectAruco(img)
 
 		# cálculo de FPS real
 		frame_count += 1

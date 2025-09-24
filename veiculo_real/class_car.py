@@ -334,11 +334,11 @@ if __name__ == "__main__":
 	
 	# Globais
 	parameters = {	
-				'ts'		: 30.0, 			# tempo da execucao
-				'save'		: True,
-				'logfile'	: 'logs/PF/',		# log file
-				'camera'	: False,
-				'ultrasonic_steering' : True,
+				'ts'					: 30.0,		# tempo da execucao
+				'save'					: True,		# salvar trajetoria
+				'logfile'				: 'logs/',	# log file
+				'camera'				: False,	# usar camera
+				'ultrasonic_steering' 	: True,		# mover ultrasom com estercamento
 			}
 	
 	# cria comunicacao com o carrinho
