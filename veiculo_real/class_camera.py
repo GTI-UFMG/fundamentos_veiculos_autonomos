@@ -8,6 +8,8 @@
 # Universidade Federal de Minas Gerais
 ########################################
 import time
+import os
+os.environ["QT_QPA_PLATFORM"] = "xcb"  # forca backend X11
 import cv2
 from ultralytics import YOLO
 
@@ -31,12 +33,12 @@ class Camera:
 		self.cap = cv2.VideoCapture(cam_index, cv2.CAP_V4L2)
 
 		if not self.cap.isOpened():
-			# tenta sem CAP_V4L2, caso contrário
+			# tenta sem CAP_V4L2, caso contrÃ¡rio
 			self.cap = cv2.VideoCapture(cam_index)
 			if not self.cap.isOpened():
-				raise RuntimeError(f"Não foi possível abrir a webcam (index={cam_index}).")
+				raise RuntimeError(f"NÃ£o foi possÃ­vel abrir a webcam (index={cam_index}).")
 
-		# tenta definir codec MJPG para melhor desempenho (se a câmera suportar)
+		# tenta definir codec MJPG para melhor desempenho (se a cÃ¢mera suportar)
 		try:
 			#fourcc = cv2.VideoWriter_fourcc(*"MJPG")
 			fourcc = cv2.VideoWriter_fourcc(*"YUY2")
@@ -44,7 +46,7 @@ class Camera:
 		except Exception:
 			pass
 
-		# configura resolução
+		# configura resoluÃ§Ã£o
 		w, h = resolution
 		self.cap.set(cv2.CAP_PROP_FRAME_WIDTH,  int(w))
 		self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(h))
@@ -56,9 +58,9 @@ class Camera:
 		# 0 = off, 1 = on
 		if self.cap.get(cv2.CAP_PROP_AUTOFOCUS) != -1:
 			self.cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
-		# tenta ajustar exposição automática (opcional)
+		# tenta ajustar exposiÃ§Ã£o automÃ¡tica (opcional)
 		if self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE) != -1:
-			# Em muitas câmeras do Linux, 1 significa Auto, 0.25 Manual; varia por driver
+			# Em muitas cÃ¢meras do Linux, 1 significa Auto, 0.25 Manual; varia por driver
 			try:
 				self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
 			except Exception:
@@ -109,7 +111,7 @@ class Camera:
 	# modelo detector de placas de transito
 	def detectPlaca(self, img):
 		
-		# inferência
+		# inferÃªncia
 		results = self.model.predict(img, conf=0.25, iou=0.45, imgsz=640, verbose=False)
 		
 		# desenha resultados
@@ -147,7 +149,7 @@ class Camera:
 	# show image
 	def show(self, img, fps=None):
 		
-		# coloca informação de fps
+		# coloca informaÃ§Ã£o de fps
 		if fps is not None:
 			cv2.putText(img, f"FPS: {fps:.1f}", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
 		
@@ -183,7 +185,7 @@ if __name__ == "__main__":
 	while (time.time() - t0) <= 20.0:
 		img = cam.getImage(gray=False)
 		if img is None:
-			print('Não foi possível capturar a imagem.')
+			print('NÃ£o foi possÃ­vel capturar a imagem.')
 			continue
 		
 		# detecta placas
@@ -192,7 +194,7 @@ if __name__ == "__main__":
 		# detecta Arucos
 		img, _ = cam.detectAruco(img)
 
-		# cálculo de FPS real
+		# cÃ¡lculo de FPS real
 		frame_count += 1
 		now = time.time()
 		if now - prev_time >= 1.0:     # a cada 1 segundo
