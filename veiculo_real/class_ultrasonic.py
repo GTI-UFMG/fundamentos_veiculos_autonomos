@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 ########################################
-# Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
-# Fundamentos de Veículos Autônomos - 2025/2
+# Disciplina: Topicos em Engenharia de Controle e Automacao IV (ENG075): 
+# Fundamentos de Veiculos Autonomos - 2025/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
-# Cursos: Engenharia de Controle e Automação
-# DELT – Escola de Engenharia
+# Cursos: Engenharia de Controle e Automacao
+# DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
 import time
