@@ -65,7 +65,10 @@ class Ultrasonic:
 			self.triggerPin = triggerPin if triggerPin is not None else 18
 			self.echoPin = echoPin if echoPin is not None else 24
 			GPIO.setwarnings(False)
-			GPIO.setmode(GPIO.BOARD)
+			try:
+				GPIO.setmode(GPIO.BOARD)
+			except:
+				None
 			GPIO.setup(self.triggerPin, GPIO.OUT)
 			GPIO.setup(self.echoPin, GPIO.IN)
 
