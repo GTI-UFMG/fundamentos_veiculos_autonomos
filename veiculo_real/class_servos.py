@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 ########################################
-# Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
-# Fundamentos de Veículos Autônomos - 2025/2
+# Disciplina: TÃ³picos em Engenharia de Controle e AutomaÃ§Ã£o IV (ENG075): 
+# Fundamentos de VeÃ­culos AutÃ´nomos - 2025/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
-# Cursos: Engenharia de Controle e Automação
+# Cursos: Engenharia de Controle e AutomaÃ§Ã£o
 # DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
@@ -194,7 +194,7 @@ class Servos:
 if __name__ == "__main__":
 	
 	# cria servos
-	ser = Servos(use_thread=True)
+	ser = Servos(ultrasonic=True, use_thread=True)
 	print('Servos ok...')
 	
 	# testa servos
@@ -204,7 +204,7 @@ if __name__ == "__main__":
 		print(f"Tempo = {t:.2f} s")
 		
 		# seta estercamento junto com ultrasom
-		ser.setSteer(np.deg2rad(MAX_STERRING_ANGLE)*np.sin(0.5*t), ultrasonic=True)
+		ser.setSteer(np.deg2rad(MAX_STERRING_ANGLE)*np.sin(0.5*t))
 		# seta torque do motor
 		ser.setTorque(0.1*np.sin(0.5*t))
 		# espera
