@@ -70,11 +70,12 @@ class Car:
 		self.w_filt    = class_filter.MovingAverage(n=20)
 		
 		# logs de salvamento
-		self.logfile = parameters['logfile']
-		# Nome do diretorio com o timestamp
-		self.logfile += datetime.now().strftime("%Y%m%d_%H%M%S") + "/"
-		# Crie a pasta se ela nao existir
-		os.makedirs(self.logfile, exist_ok=True)
+		if self.parameters['save']:
+			self.logfile = parameters['logfile']
+			# Nome do diretorio com o timestamp
+			self.logfile += datetime.now().strftime("%Y%m%d_%H%M%S") + "/"
+			# Crie a pasta se ela nao existir
+			os.makedirs(self.logfile, exist_ok=True)
 		
 		print('Carro pronto!', flush=True)
 		
@@ -335,7 +336,7 @@ if __name__ == "__main__":
 	# Globais
 	parameters = {	
 				'ts'					: 30.0,		# tempo da execucao
-				'save'					: True,		# salvar trajetoria
+				'save'					: False,	# salvar trajetoria
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# usar camera
 				'ultrasonic_steering' 	: True,		# mover ultrasom com estercamento
@@ -366,4 +367,8 @@ if __name__ == "__main__":
 				
 		time.sleep(.1)
 
+	# salva os dados coletados
+	if parameters['save']:
+		car.save()
+		
 	car.close()

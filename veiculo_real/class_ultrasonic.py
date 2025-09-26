@@ -131,6 +131,9 @@ class Ultrasonic:
 		# calculate distance (in meters)
 		distance = GAIN * timeElapsed
 
+		# forca uma pequena espera para evitar erro de GPIO
+		time.sleep(0.01)
+		
 		# Returns: distance (float): The measured distance in meters, constrained by min/max range
 		return self.saturate(distance)
 

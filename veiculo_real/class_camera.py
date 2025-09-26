@@ -175,7 +175,7 @@ class Camera:
 ########################################
 if __name__ == "__main__":
 	cam = Camera()
-	print('Webcam ok')
+	print('Camera ok')
 	t0 = time.time()
 
 	prev_time = time.time()    # para medir FPS
@@ -185,7 +185,7 @@ if __name__ == "__main__":
 	while (time.time() - t0) <= 20.0:
 		img = cam.getImage(gray=False)
 		if img is None:
-			print('NÃ£o foi possÃ­vel capturar a imagem.')
+			print('Nao foi possí­vel capturar a imagem.')
 			continue
 		
 		# detecta placas

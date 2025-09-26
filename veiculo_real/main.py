@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import threading
 import time
 
-MAIN_VEL = 1.0
+MAIN_VEL = 0.5 # m/s
 refste = np.deg2rad(0.0)
 frame = None
 
@@ -71,7 +71,7 @@ if __name__ == "__main__":
 	
 	# Globais
 	parameters = {	
-				'ts'					: 20.0, 	# tempo da execucao
+				'ts'					: 10.0, 	# tempo da execucao
 				'save'					: True,		# salva dados da trajetoria
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# habilitar camera e thread de visao
@@ -115,6 +115,10 @@ if __name__ == "__main__":
 		
 		plt.show()
 		plt.pause(1.0)
+	
+	# salva os dados coletados
+	if parameters['save']:
+		car.save()
 
 	# desliga o carro
 	car.close()
