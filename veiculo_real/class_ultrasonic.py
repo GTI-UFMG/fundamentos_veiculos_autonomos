@@ -43,6 +43,9 @@ class Ultrasonic:
 		# limites do sensor
 		self.minRange = minRange
 		self.maxRange = maxRange
+		
+		# ultima leitura valida
+		self.measured = 0.0
 
 		# Detectar a versao da Raspberry
 		self.rpi_version = self.detect_rpi_version()
@@ -57,6 +60,9 @@ class Ultrasonic:
 			self.echoPin = echoPin if echoPin is not None else 8
 			GPIO.gpio_claim_output(self.handleChip, self.triggerPin)
 			GPIO.gpio_claim_input(self.handleChip, self.echoPin)
+			
+			# funcao de leitura pra raspberry pi 5
+			self.read_func = lambda: self.GPIO.gpio_read(self.handleChip, self.echoPin)
 
 		# Raspberry Pi 3/4
 		else:
@@ -71,6 +77,9 @@ class Ultrasonic:
 				None
 			GPIO.setup(self.triggerPin, GPIO.OUT)
 			GPIO.setup(self.echoPin, GPIO.IN)
+			
+			# funcao de leitura pra raspberry pi 4
+			self.read_func = lambda: self.GPIO.input(self.echoPin)
 
 	##############################################
 	# Raspberry Pi version detector
@@ -78,14 +87,22 @@ class Ultrasonic:
 	def detect_rpi_version(self):
 		try:
 			with open('/proc/device-tree/model') as f:
-				model = f.read()
-				if 'Raspberry Pi 5' in model:
-					return 5
-				else:
-					return 4
+				return 5 if 'Raspberry Pi 5' in f.read() else 4
 		except:
-			return 4  # Default caso nÃ£o consiga detectar
+			return 4  # Default caso nao consiga detectar
 
+	########################################
+	# mede os pulsos com timeout
+	########################################
+	def _measure_pulse(self, level, timeout_s=0.03):
+		"""Espera por level (0/1) com timeout; retorna (ok, t)."""
+		deadline = time.time() + timeout_s
+		while self.read_func() != level:
+			if time.time() > deadline:
+				return False, None
+		# sucesso	
+		return True, time.time()
+        
 	########################################
 	# Funcao para medir distancia
 	########################################
@@ -95,53 +112,37 @@ class Ultrasonic:
 		if self.rpi_version == 5:
 			# set trigger to HIGH
 			self.GPIO.gpio_write(self.handleChip, self.triggerPin, 1)
-			time.sleep(0.0001)
+			time.sleep(0.00002)  # 20 us
 			self.GPIO.gpio_write(self.handleChip, self.triggerPin, 0)
-
-			# save startTime
-			startTime = time.time()
-			while self.GPIO.gpio_read(self.handleChip, self.echoPin) == 0:
-				startTime = time.time()
-
-			# save time of arrival
-			stopTime = time.time()
-			while self.GPIO.gpio_read(self.handleChip, self.echoPin) == 1:
-				stopTime = time.time()
 
 		# Raspberry Pi 3/4
 		else:
 			# set trigger to HIGH
 			self.GPIO.output(self.triggerPin, True)
-			time.sleep(0.0001)
+			time.sleep(0.00002)  # 20 us
 			self.GPIO.output(self.triggerPin, False)
 
-			# save startTime
-			startTime = time.time()
-			while self.GPIO.input(self.echoPin) == 0:
-				startTime = time.time()
+		# 1) esperar o inicio do eco (subir para 1). Timeout evita travar.
+		ok1, startTime = self._measure_pulse(1)
 
-			# save time of arrival
-			stopTime = time.time()
-			while self.GPIO.input(self.echoPin) == 1:
-				stopTime = time.time()
-
-		# time difference between start and arrival
-		timeElapsed = stopTime - startTime
+		# 2) medir duracao do pulso alto (ate cair para 0). Outro timeout.
+		ok2, stopTime = self._measure_pulse(0)
 		
-		# calculate distance (in meters)
-		distance = GAIN * timeElapsed
-
 		# forca uma pequena espera para evitar erro de GPIO
 		time.sleep(0.01)
 		
-		# Returns: distance (float): The measured distance in meters, constrained by min/max range
-		return self.saturate(distance)
-
-	########################################
-	# Saturacao dos valores
-	########################################
-	def saturate(self, distance):
-		return np.clip(distance, self.minRange, self.maxRange)			
+		if (not ok1) or (not ok2):
+			return self.measured #self.maxRange
+		else:
+			# time difference between start and arrival
+			timeElapsed = stopTime - startTime
+			
+			# calculate distance (in meters)
+			distance = GAIN * timeElapsed
+			self.measured = np.clip(distance, self.minRange, self.maxRange)
+			
+			# Returns: distance (float): The measured distance in meters, constrained by min/max range
+			return self.measured
 
 	########################################
 	# Limpeza dos pinos
@@ -170,7 +171,7 @@ if __name__ == '__main__':
 
 	ts = []
 	dist = []
-	m = 20
+	m = 40
 
 	# cria o ultrasom
 	us = Ultrasonic()
@@ -182,15 +183,16 @@ if __name__ == '__main__':
 		dist.append(us.getDistance())
 		ts.append(time.time() - t0)
 		
-		plt.clf()
-		plt.plot(ts[-m:], dist[-m:], 'r')
-		plt.xlabel('Time [s]')
-		plt.ylabel('Distance [m]')
-		plt.ylim([us.minRange, us.maxRange])
-		plt.pause(0.1)
-		plt.show()	
+		if len(dist) % 10 == 0:
+			plt.clf()
+			plt.plot(ts[-m:], dist[-m:], 'r')
+			plt.xlabel('Time [s]')
+			plt.ylabel('Distance [m]')
+			plt.ylim([us.minRange-0.2, us.maxRange+0.2])
+			plt.pause(0.1)
+			plt.show()
 		
-		print(f"Distance: {dist[-1]:.2f} [m]")
+		print(f"Distance: {dist[-1]:.2f} [m]", flush=True)
 		
 	plt.ioff()
 	us.close()
