@@ -77,7 +77,9 @@ class Car:
 			# Crie a pasta se ela nao existir
 			os.makedirs(self.logfile, exist_ok=True)
 		
-		print('Carro pronto!', flush=True)
+		print('##############################')
+		print("\033[32mCarro pronto!\033[0m", flush=True)
+		print('##############################')
 		
 	########################################
 	# inicializa sensores e atuadores
@@ -102,8 +104,6 @@ class Car:
 		# ultrasom
 		self.us = class_ultrasonic.Ultrasonic()
 		print("\033[32mUltrasom ok...\033[0m", flush=True)
-		
-		print('##############################')
 
 	########################################
 	# get states
@@ -340,7 +340,7 @@ if __name__ == "__main__":
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# usar camera
 				'ultrasonic_steering' 	: True,		# mover ultrasom com estercamento
-			}
+				}
 	
 	# cria comunicacao com o carrinho
 	car = Car(parameters)

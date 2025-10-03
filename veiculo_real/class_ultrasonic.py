@@ -19,6 +19,8 @@ GPIO mode options: BOARD/BCM
 """
 
 GAIN = 343.0/2.0
+TRIGGER_PIN = 24
+ECHO_PIN = 8
 
 ############################################
 # Ultrasonic Class for Raspberry Pi 4 or 5
@@ -56,8 +58,8 @@ class Ultrasonic:
 			import lgpio as GPIO
 			self.GPIO = GPIO
 			self.handleChip = GPIO.gpiochip_open(0)
-			self.triggerPin = triggerPin if triggerPin is not None else 24
-			self.echoPin = echoPin if echoPin is not None else 8
+			self.triggerPin = triggerPin if triggerPin is not None else TRIGGER_PIN
+			self.echoPin = echoPin if echoPin is not None else ECHO_PIN
 			GPIO.gpio_claim_output(self.handleChip, self.triggerPin)
 			GPIO.gpio_claim_input(self.handleChip, self.echoPin)
 			
@@ -68,13 +70,10 @@ class Ultrasonic:
 		else:
 			import RPi.GPIO as GPIO
 			self.GPIO = GPIO
-			self.triggerPin = triggerPin if triggerPin is not None else 18
-			self.echoPin = echoPin if echoPin is not None else 24
-			GPIO.setwarnings(False)
-			try:
-				GPIO.setmode(GPIO.BOARD)
-			except:
-				None
+			self.triggerPin = triggerPin if triggerPin is not None else TRIGGER_PIN
+			self.echoPin = echoPin if echoPin is not None else ECHO_PIN
+			GPIO.setwarnings(True)
+			GPIO.setmode(GPIO.BCM)
 			GPIO.setup(self.triggerPin, GPIO.OUT)
 			GPIO.setup(self.echoPin, GPIO.IN)
 			
@@ -171,7 +170,7 @@ if __name__ == '__main__':
 
 	ts = []
 	dist = []
-	m = 40
+	m = 50
 
 	# cria o ultrasom
 	us = Ultrasonic()
