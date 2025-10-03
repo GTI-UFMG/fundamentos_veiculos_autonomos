@@ -33,10 +33,10 @@ class Camera:
 		self.cap = cv2.VideoCapture(cam_index, cv2.CAP_V4L2)
 
 		if not self.cap.isOpened():
-			# tenta sem CAP_V4L2, caso contrÃ¡rio
+			# tenta sem CAP_V4L2, caso contrario
 			self.cap = cv2.VideoCapture(cam_index)
 			if not self.cap.isOpened():
-				raise RuntimeError(f"NÃ£o foi possÃ­vel abrir a webcam (index={cam_index}).")
+				raise RuntimeError(f"Nao foi possi­vel abrir a webcam (index={cam_index}).")
 
 		# tenta definir codec MJPG para melhor desempenho (se a cÃ¢mera suportar)
 		try:
@@ -111,7 +111,7 @@ class Camera:
 	# modelo detector de placas de transito
 	def detectPlaca(self, img):
 		
-		# inferÃªncia
+		# inferencia
 		results = self.model.predict(img, conf=0.25, iou=0.45, imgsz=640, verbose=False)
 		
 		# desenha resultados
@@ -149,7 +149,7 @@ class Camera:
 	# show image
 	def show(self, img, fps=None):
 		
-		# coloca informaÃ§Ã£o de fps
+		# coloca informacao de fps
 		if fps is not None:
 			cv2.putText(img, f"FPS: {fps:.1f}", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
 		
@@ -185,7 +185,7 @@ if __name__ == "__main__":
 	while (time.time() - t0) <= 20.0:
 		img = cam.getImage(gray=False)
 		if img is None:
-			print('Nao foi possí­vel capturar a imagem.')
+			print('Nao foi possi­vel capturar a imagem.')
 			continue
 		
 		# detecta placas
