@@ -304,14 +304,14 @@ class Car:
 	########################################
 	# save traj
 	def save(self):
-		filename = self.logfile + ('car%d.npz') % self.id
+		filename = self.logfile + 'card.npz'
 		data = [traj for traj in self.traj]
 		np.savez(filename, data=data)
 		
 	########################################
 	# load traj
 	def load(self):
-		filename = self.logfile + ('car%d.npz') % self.id
+		filename = self.logfile + 'car.npz'
 		data = np.load(filename, allow_pickle=True)
 		self.traj = data['data']
 		
@@ -351,6 +351,9 @@ if __name__ == "__main__":
 	while (time.time() - t0) <= 20.0:
 		
 		t = time.time() - t0
+		
+		# le sensores
+		car.step()
 		
 		# le ultrasom
 		dist = car.getDistance()

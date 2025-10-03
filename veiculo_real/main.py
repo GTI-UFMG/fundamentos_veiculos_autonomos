@@ -115,6 +115,10 @@ if __name__ == "__main__":
 		
 		plt.show()
 		plt.pause(1.0)
+		
+		# le ultrasom
+		dist = car.getDistance()
+		print(f"Distance: {dist:.2f} [m]")
 	
 	# salva os dados coletados
 	if parameters['save']:

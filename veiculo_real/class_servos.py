@@ -31,7 +31,7 @@ GAIN_TORQUE = 0.4
 class Servos:
 	########################################
 	# construtor
-	def __init__(self, steering=0.0, throttle=0.0, ultrasonic=True, use_thread=True):
+	def __init__(self, steering=0.0, throttle=0.0, velmax=2.0, ultrasonic=True, use_thread=True):
 		
 		# Set channels to the number of servo channels on your kit.
 		# 8 for FeatherWing, 16 for Shield/HAT/Bonnet.
@@ -49,6 +49,12 @@ class Servos:
 		# define se o ultrasom vai se mover junto com o estercamento
 		self.ultrasonic = ultrasonic
 		
+		# definir limite de velocidade do carro
+		self.velmax = np.clip(np.abs(velmax/2.0), 0.3, 3.0)
+		#v =  0.092294 PWM - 8.9370 (curva interpolada com experimentos)
+		self.max_pwm_throttle = (self.velmax + 8.9370)/0.092294
+		self.min_pwm_throttle = 2.0*ZERO_THROTTLE_ANGLE - self.max_pwm_throttle
+		
 		# lock de secao critica
 		self.lock = threading.Lock()
 		# thread que promove a atuacao suave
@@ -60,7 +66,7 @@ class Servos:
 		self.setSteer(steering)
 		
 		# inicializa tracao
-		self.setPWM(throttle)
+		self._setPWM(throttle)
 		
 		# dispara thread
 		if use_thread:
@@ -105,24 +111,15 @@ class Servos:
 			
 			# velocidade apenas positiva
 			th_pwm = np.clip(th_pwm, np.deg2rad(0.0), np.deg2rad(90.0))
-			self.setPWM(th_pwm)
+			self._setPWM(th_pwm)
 			
 			# espera terminar o periodo
 			elapsed_time = time.time() - start_time
 			time.sleep(np.max([0.0, dt-elapsed_time]))
 	
 	########################################
-	# seta torque do motor em N.m
-	def setTorque(self, T, dt=0.03):
-		
-		# transforma torque para rad
-		with self.lock:
-			self.dth_pwm = GAIN_TORQUE*T
-			self.dt = dt
-		
-	########################################
 	# seta PWM do motor
-	def setPWM(self, pwm):
+	def _setPWM(self, pwm):
 		
 		# converte para graus
 		pwm = np.rad2deg(pwm + self.trim_throttle)
@@ -131,8 +128,18 @@ class Servos:
 		pwm += ZERO_THROTTLE_ANGLE
 		
 		# envia comando
-		self.pwm = np.clip(pwm, 0.0, 180.0)
+		#self.pwm = np.clip(pwm, 0.0, 180.0)
+		self.pwm = np.clip(pwm, self.min_pwm_throttle, self.max_pwm_throttle)
 		self.kit.servo[SERVO_THROTTLE].angle = self.pwm
+		
+	########################################
+	# seta torque do motor em N.m
+	def setTorque(self, T, dt=0.03):
+		
+		# transforma torque para rad
+		with self.lock:
+			self.dth_pwm = GAIN_TORQUE*T
+			self.dt = dt
 	
 	########################################
 	# seta steer do veiculo (st in rad)
@@ -171,7 +178,7 @@ class Servos:
 		
 	########################################
 	# mode de marcha re
-	def backward(self):
+	def _backward(self):
 		self.kit.servo[SERVO_THROTTLE].angle = 0.8*ZERO_THROTTLE_ANGLE
 		time.sleep(0.1)
 		self.kit.servo[SERVO_THROTTLE].angle = ZERO_THROTTLE_ANGLE
@@ -201,12 +208,12 @@ if __name__ == "__main__":
 	t0 = time.time()
 	while (time.time() - t0) <= 10.0:
 		t = time.time() - t0
-		print(f"Tempo = {t:.2f} s")
+		print(f"Tempo = {ser.pwm:.2f} s", flush=True)
 		
 		# seta estercamento junto com ultrasom
 		ser.setSteer(np.deg2rad(MAX_STERRING_ANGLE)*np.sin(0.5*t))
 		# seta torque do motor
-		ser.setTorque(0.1*np.sin(0.5*t))
+		ser.setTorque(0.2*np.sin(0.5*t))
 		# espera
 		time.sleep(ser.dt)
 		
