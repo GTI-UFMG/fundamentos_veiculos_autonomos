@@ -63,8 +63,11 @@ class Car:
 		# comando de estercamento
 		self.st = 0.0
 		
+		# botao de emergencia
+		self.emergencia = True
+		
 		# filtros dos sinais
-		self.v_filt    = class_filter.MovingAverage(n=15)
+		self.v_filt    = class_filter.MovingAverage(n=20)
 		self.a_filt    = class_filter.MovingAverage(n=30)
 		self.vref_filt = class_filter.MovingAverage(n=80)
 		self.w_filt    = class_filter.MovingAverage(n=20)
@@ -106,6 +109,26 @@ class Car:
 		print("\033[32mUltrasom ok...\033[0m", flush=True)
 
 	########################################
+	# comeca a missao
+	def startMission(self):
+		
+		# desliga a emergencia
+		self.emergencia = False
+		
+		# tempo inicial
+		self.tinit = self.getTime()
+		
+		# estados iniciais
+		self.getStates()
+		
+		# comeca parado
+		self.setU(0.0)
+		self.setSteer(0.0)
+		
+		# salva trajetoria
+		self.saveTraj()
+		
+	########################################
 	# get states
 	def getStates(self):
 
@@ -126,32 +149,6 @@ class Car:
 		self.t = self.getTime() - self.tinit
 				
 		return self.p, self.v, self.a, self.th, self.w, self.t
-	
-	########################################
-	# comeca a missao
-	def startMission(self):
-		
-		# tempo inicial
-		self.tinit = self.getTime()
-		
-		# estados iniciais
-		self.getStates()
-		
-		# comeca parado
-		self.setU(0.0)
-		self.setSteer(0.0)
-		
-		# salva trajetoria
-		self.saveTraj()
-		
-	########################################
-	# termina a missao
-	def stopMission(self):
-		
-		# termina parado
-		self.setU(-CAR['ACCELMAX'])
-		self.setSteer(0.0)
-		time.sleep(2.0)
 	
 	########################################
 	def step(self):
@@ -249,9 +246,13 @@ class Car:
 		Kp = 3.0
 		Kd = 1.0
 		
-		# referencia de velocidade
-		self.vref = self.vref_filt.filter(vref)
-		self.vref = np.clip(self.vref, 0.0, CAR['VELMAX'])
+		# em caso de emergencia, pare
+		if self.emergencia:
+			vref = 0.0
+		else:		
+			# referencia filtrada de velocidade
+			self.vref = self.vref_filt.filter(vref)
+			self.vref = np.clip(self.vref, 0.0, CAR['VELMAX'])
 		
 		# controle de velocidade
 		u = Kp*(self.vref - self.v) + Kd*(-self.a)
@@ -260,6 +261,10 @@ class Car:
 	########################################
 	# seta torque dos motores do veiculo
 	def setU(self, u):
+		
+		# em caso de emergencia, desacelere no maximo
+		if self.emergencia:
+			u = -CAR['ACCELMAX']
 		
 		# limita aceleracao
 		self.u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
@@ -275,7 +280,7 @@ class Car:
 		T = CAR['RW']*np.sum(F)
 		
 		# impede que o carro se movimente para tras
-		if (np.sign(self.v) < 0.0) and (np.sign(u) < 0.0):
+		if (self.v < 0.1) and (u < 0.0):
 			T = 0.0
 		
 		# seta o torque
@@ -284,6 +289,9 @@ class Car:
 	########################################
 	# seta steer do veiculo
 	def setSteer(self, st):
+		# emergencia
+		if self.emergencia:
+			st = 0.0
 		
 		# limita angulo de estercamento
 		self.st = np.clip(st, -CAR['STEERMAX'], CAR['STEERMAX'])
@@ -314,10 +322,27 @@ class Car:
 		filename = self.logfile + 'car.npz'
 		data = np.load(filename, allow_pickle=True)
 		self.traj = data['data']
+	
+	########################################
+	# termina a missao
+	def stopMission(self):
+		
+		# aperta a emergencia
+		self.emergencia = True
+		
+		# termina parado
+		self.setU(-CAR['ACCELMAX'])
+		self.setSteer(0.0)
+		
+		# espera ate parar
+		while self.v > 0.1:
+			self.step()
+			time.sleep(0.1)
 		
 	########################################
 	# termina a classe
 	def close(self):
+		# para o carrinho
 		self.stopMission()
 		
 		self.odometer.close()
@@ -326,7 +351,7 @@ class Car:
 		if self.parameters['camera']:
 			self.cam.close()
 		
-		print ('Program finished!')
+		print ("\033[32mMissao terminada!\033[0m")
 		
 ########################################
 # main teste
@@ -349,7 +374,6 @@ if __name__ == "__main__":
 	# testa leitura
 	t0 = time.time()
 	while (time.time() - t0) <= 20.0:
-		
 		t = time.time() - t0
 		
 		# le sensores
@@ -360,15 +384,13 @@ if __name__ == "__main__":
 		print(f"Distance: {dist:.2f} [m]")
 		
 		# seta torque do motor
-		if dist > 0.30:
-			car.setU(0.5*np.sin(0.5*t))
+		if dist > 0.10:
+			car.setVel(0.7)
 		else:
-			car.setU(-1.0)
+			car.setVel(0.0)
 			
 		# seta estercamento junto com ultrasom
 		car.setSteer(np.deg2rad(20.0)*np.sin(0.5*t))
-				
-		time.sleep(.1)
 
 	# salva os dados coletados
 	if parameters['save']:

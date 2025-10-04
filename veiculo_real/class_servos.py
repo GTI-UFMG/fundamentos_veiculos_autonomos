@@ -192,7 +192,7 @@ class Servos:
 	def close(self):
 		# termina de mover os servos e o esc
 		self.setSteer(0.0)
-		self.setTorque(-10.0)
+		self.setTorque(-1.0)
 		time.sleep(1.0)
 		
 ########################################
@@ -208,7 +208,7 @@ if __name__ == "__main__":
 	t0 = time.time()
 	while (time.time() - t0) <= 10.0:
 		t = time.time() - t0
-		print(f"Tempo = {ser.pwm:.2f} s", flush=True)
+		print(f"Tempo = {t:.2f} s", flush=True)
 		
 		# seta estercamento junto com ultrasom
 		ser.setSteer(np.deg2rad(MAX_STERRING_ANGLE)*np.sin(0.5*t))

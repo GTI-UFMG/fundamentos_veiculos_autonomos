@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import threading
 import time
 
-MAIN_VEL = 0.5 # m/s
+MAIN_VEL = 0.7 # m/s
 refste = np.deg2rad(0.0)
 frame = None
 
@@ -31,8 +31,13 @@ def control_func():
 		# seta direcao
 		car.setSteer(refste)
 		
-		# atua
-		car.setVel(MAIN_VEL)
+		# atua se nao houver colisao
+		dist = car.getDistance()
+		if dist < 0.10:
+			print(f"Colisao: distance {dist:.2f} [m]")
+			car.setVel(0.0)
+		else:		
+			car.setVel(MAIN_VEL)
 		
 		# espera
 		time.sleep(0.005)
@@ -71,7 +76,7 @@ if __name__ == "__main__":
 	
 	# Globais
 	parameters = {	
-				'ts'					: 10.0, 	# tempo da execucao
+				'ts'					: 20.0, 	# tempo da execucao
 				'save'					: True,		# salva dados da trajetoria
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# habilitar camera e thread de visao
@@ -115,10 +120,6 @@ if __name__ == "__main__":
 		
 		plt.show()
 		plt.pause(1.0)
-		
-		# le ultrasom
-		dist = car.getDistance()
-		print(f"Distance: {dist:.2f} [m]")
 	
 	# salva os dados coletados
 	if parameters['save']:

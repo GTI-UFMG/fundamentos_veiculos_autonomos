@@ -9,6 +9,7 @@
 ########################################
 import time
 import numpy as np
+import threading
 
 """
 GPIO mode options: BOARD/BCM
@@ -48,6 +49,7 @@ class Ultrasonic:
 		
 		# ultima leitura valida
 		self.measured = 0.0
+		self.dist = self.measured
 
 		# Detectar a versao da Raspberry
 		self.rpi_version = self.detect_rpi_version()
@@ -72,13 +74,20 @@ class Ultrasonic:
 			self.GPIO = GPIO
 			self.triggerPin = triggerPin if triggerPin is not None else TRIGGER_PIN
 			self.echoPin = echoPin if echoPin is not None else ECHO_PIN
-			GPIO.setwarnings(True)
+			GPIO.setwarnings(False)
 			GPIO.setmode(GPIO.BCM)
 			GPIO.setup(self.triggerPin, GPIO.OUT)
 			GPIO.setup(self.echoPin, GPIO.IN)
 			
 			# funcao de leitura pra raspberry pi 4
 			self.read_func = lambda: self.GPIO.input(self.echoPin)
+		
+		# lock de secao critica
+		self.lock = threading.Lock()
+		self.stop = threading.Event()
+		# thread de leitura
+		self.thread = threading.Thread(target=self.read, daemon=True)
+		self.thread.start()
 
 	##############################################
 	# Raspberry Pi version detector
@@ -91,21 +100,25 @@ class Ultrasonic:
 			return 4  # Default caso nao consiga detectar
 
 	########################################
-	# mede os pulsos com timeout
+	# thread de leitura continua
 	########################################
-	def _measure_pulse(self, level, timeout_s=0.03):
-		"""Espera por level (0/1) com timeout; retorna (ok, t)."""
-		deadline = time.time() + timeout_s
-		while self.read_func() != level:
-			if time.time() > deadline:
-				return False, None
-		# sucesso	
-		return True, time.time()
-        
+	def read(self):
+		while not self.stop.is_set():
+			d = self.getMeasure()
+			with self.lock:
+				self.dist = d
+	
 	########################################
 	# Funcao para medir distancia
 	########################################
 	def getDistance(self):
+		with self.lock:
+			return self.dist
+		
+	########################################
+	# Funcao para medir distancia
+	########################################
+	def getMeasure(self):
 		
 		# Raspberry Pi 5
 		if self.rpi_version == 5:
@@ -144,6 +157,18 @@ class Ultrasonic:
 			return self.measured
 
 	########################################
+	# mede os pulsos com timeout
+	########################################
+	def _measure_pulse(self, level, timeout_s=0.03):
+		"""Espera por level (0/1) com timeout; retorna (ok, t)."""
+		deadline = time.time() + timeout_s
+		while self.read_func() != level:
+			if time.time() > deadline:
+				return False, None
+		# sucesso	
+		return True, time.time()
+		
+	########################################
 	# Limpeza dos pinos
 	########################################
 	def cleanup(self):
@@ -157,6 +182,11 @@ class Ultrasonic:
 	# Destrutor
 	########################################
 	def close(self):
+		
+		# termina a thread
+		self.stop.set()
+		self.thread.join()
+		
 		#Ensure cleanup is called when object is deleted
 		self.cleanup()
 
