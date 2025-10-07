@@ -56,6 +56,8 @@ class IMU:
     LSB_PER_DPS = 131.0   # gyro full scale +-250 deg/s
     MAG_UT_LSB = 0.15     # microtesla per LSB for AK8963 16-bit
 
+	########################################
+	# construtor
     def __init__(self, address=0x68, bus_id=4, samples=100, sample_delay=0.01, do_wake=True, mag_cal_file="mag_cal.json"):
         self.address = address
         self.bus_id = bus_id
@@ -285,7 +287,8 @@ class IMU:
             mz = -((65535 - mz) + 1)
         return mx, my, mz
 
-    # ---------- magnetometer calibration and helpers ----------
+	########################################
+    # magnetometer calibration and helpers
     def calibrate_mag(self, samples=600, delay=0.02, filename=None):
         """
         Calibrate magnetometer using min/max method.
@@ -352,6 +355,7 @@ class IMU:
         print("Calibration done.")
         return cal
 
+	########################################
     def load_mag_cal(self, filename):
         """
         Load mag calibration JSON created by calibrate_mag.
@@ -430,8 +434,8 @@ class IMU:
         # read accel in g
         ax, ay, az = self.getAccel_g()
 
-        roll = np.atan2(ay, az)
-        pitch = np.atan2(-ax, np.sqrt(ay * ay + az * az))
+        roll = np.arctan2(ay, az)
+        pitch = np.arctan2(-ax, np.sqrt(ay * ay + az * az))
 
         yaw = None
         # compute yaw using magnetometer if available
@@ -450,7 +454,7 @@ class IMU:
                 my_comp = mx * sin_roll * sin_pitch + my * cos_roll - mz * sin_roll * cos_pitch
 
                 # heading
-                heading = np.atan2(my_comp, mx_comp)  # radians
+                heading = np.arctan2(my_comp, mx_comp)  # radians
 
                 if degrees:
                     yaw = (np.degrees(heading) + 360.0) % 360.0
