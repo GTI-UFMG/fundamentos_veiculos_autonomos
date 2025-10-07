@@ -81,6 +81,7 @@ if __name__ == "__main__":
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# habilitar camera e thread de visao
 				'ultrasonic_steering' 	: True,		# mover ultrasom com estercamento
+				'us_buzzer'				: False,		# aviso sonoro para objetos proximos
 			}
 	
 	# cria comunicacao com o carrinho

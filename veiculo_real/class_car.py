@@ -14,6 +14,8 @@ import class_encoder
 import class_servos
 import class_filter
 import class_ultrasonic
+import class_imu
+import class_buzzer
 
 ########################################
 # GLOBAIS
@@ -95,6 +97,10 @@ class Car:
 		# odometro da roda
 		self.odometer = class_encoder.Encoder()
 		print("\033[32mOdometria ok...\033[0m", flush=True)
+		
+		# imu
+		self.imu = class_imu.IMU()
+		print("\033[32mIMU ok...\033[0m", flush=True)
 
 		# camera
 		if self.parameters['camera']:
@@ -107,6 +113,10 @@ class Car:
 		# ultrasom
 		self.us = class_ultrasonic.Ultrasonic()
 		print("\033[32mUltrasom ok...\033[0m", flush=True)
+		
+		# buzzer de sinalizacao
+		self.bz = class_buzzer.Buzzer()
+		print("\033[32mBuzzer ok...\033[0m", flush=True)
 
 	########################################
 	# comeca a missao
@@ -127,6 +137,10 @@ class Car:
 		
 		# salva trajetoria
 		self.saveTraj()
+		
+		# aviso sonoro de inicio
+		self.bz.beep(timer=0.2, n=3)
+		time.sleep(1.0)
 		
 	########################################
 	# get states
@@ -306,8 +320,16 @@ class Car:
 		
 	########################################
 	# get ultrasonic distance
-	def getDistance(self, max_dist=4.0):
-		return np.min([self.us.getDistance(), max_dist])
+	def getDistance(self, max_dist=4.0, d_min=0.4):
+		
+		# captura a distancia
+		d = np.min([self.us.getDistance(), max_dist])
+		
+		if self.parameters['us_buzzer']:
+			if d <= d_min:
+				self.bz.beep(timer=d/3.0)
+		# retorna distancia
+		return d 
 	
 	########################################
 	# save traj
@@ -339,18 +361,23 @@ class Car:
 			self.step()
 			time.sleep(0.1)
 		
+		# sinaliza fim
+		time.sleep(1.0)
+		self.bz.victory_tune(n=1)
+		
 	########################################
 	# termina a classe
 	def close(self):
 		# para o carrinho
 		self.stopMission()
 		
+		# fecha tudo
 		self.odometer.close()
 		self.atuador.close()
 		self.us.close()
 		if self.parameters['camera']:
 			self.cam.close()
-		
+			
 		print ("\033[32mMissao terminada!\033[0m")
 		
 ########################################
@@ -360,11 +387,12 @@ if __name__ == "__main__":
 	
 	# Globais
 	parameters = {	
-				'ts'					: 30.0,		# tempo da execucao
+				'ts'					: 15.0,		# tempo da execucao
 				'save'					: False,	# salvar trajetoria
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# usar camera
 				'ultrasonic_steering' 	: True,		# mover ultrasom com estercamento
+				'us_buzzer'				: False,		# aviso sonoro para objetos proximos
 				}
 	
 	# cria comunicacao com o carrinho
@@ -373,7 +401,7 @@ if __name__ == "__main__":
 	
 	# testa leitura
 	t0 = time.time()
-	while (time.time() - t0) <= 20.0:
+	while (time.time() - t0) <= parameters['ts']:
 		t = time.time() - t0
 		
 		# le sensores
