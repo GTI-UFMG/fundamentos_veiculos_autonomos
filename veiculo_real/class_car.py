@@ -372,6 +372,7 @@ class Car:
 		self.stopMission()
 		
 		# fecha tudo
+		self.bz.close()
 		self.odometer.close()
 		self.atuador.close()
 		self.us.close()
