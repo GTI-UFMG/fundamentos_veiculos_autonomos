@@ -53,7 +53,7 @@ class Ultrasonic:
 
 		# Detectar a versao da Raspberry
 		self.rpi_version = self.detect_rpi_version()
-		print(f"[INFO] Detected Raspberry Pi {self.rpi_version}")
+		#print(f"[INFO] Detected Raspberry Pi {self.rpi_version}")
 
 		# Raspberry Pi 5
 		if self.rpi_version == 5:
