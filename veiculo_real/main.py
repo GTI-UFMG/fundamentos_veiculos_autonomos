@@ -23,6 +23,7 @@ def control_func():
 	
 	global car
 	global refste
+	global count
 	
 	while True:
 		# le sensores
@@ -38,9 +39,6 @@ def control_func():
 			car.setVel(0.0)
 		else:		
 			car.setVel(MAIN_VEL)
-		
-		# espera
-		time.sleep(0.005)
 		
 ########################################
 # thread de visao
@@ -76,11 +74,11 @@ if __name__ == "__main__":
 	
 	# Globais
 	parameters = {	
-				'ts'					: 20.0, 	# tempo da execucao
+				'ts'					: 15.0, 	# tempo da execucao
 				'save'					: True,		# salva dados da trajetoria
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# habilitar camera e thread de visao
-				'ultrasonic_steering' 	: True,		# mover ultrasom com estercamento
+				'ultrasonic_steering' 	: False,		# mover ultrasom com estercamento
 				'us_buzzer'				: False,		# aviso sonoro para objetos proximos
 			}
 	

@@ -139,7 +139,8 @@ class Car:
 		self.saveTraj()
 		
 		# aviso sonoro de inicio
-		self.bz.beep(timer=0.2, n=3)
+		for _ in range(3):
+			self.bz.beep(timer=0.2)
 		time.sleep(1.0)
 		
 	########################################
@@ -165,10 +166,14 @@ class Car:
 		return self.p, self.v, self.a, self.th, self.w, self.t
 	
 	########################################
-	def step(self):
+	def step(self, dt=0.02):
 		
 		# tempo anterior
 		t0 = self.t
+		
+		# espera o periodo de delta t
+		elapsed_time = self.getTime() - self.tinit - t0
+		time.sleep(np.max([0.0, dt-elapsed_time]))
 		
 		# condicoes iniciais
 		self.getStates()
@@ -257,8 +262,8 @@ class Car:
 	def setVel(self, vref):
 		
 		# ganhos
-		Kp = 3.0
-		Kd = 1.0
+		Kp = 1.0
+		Kd = 0.2
 		
 		# em caso de emergencia, pare
 		if self.emergencia:
@@ -327,7 +332,7 @@ class Car:
 		
 		if self.parameters['us_buzzer']:
 			if d <= d_min:
-				self.bz.beep(timer=d/3.0)
+				self.bz.beep(timer=d/3.0, block=False)
 		# retorna distancia
 		return d 
 	
@@ -363,7 +368,7 @@ class Car:
 		
 		# sinaliza fim
 		time.sleep(1.0)
-		self.bz.victory_tune(n=1)
+		self.bz.victory_tune()
 		
 	########################################
 	# termina a classe
