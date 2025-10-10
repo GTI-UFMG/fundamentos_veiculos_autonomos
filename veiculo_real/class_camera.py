@@ -194,7 +194,7 @@ if __name__ == "__main__":
 		# detecta Arucos
 		img, _ = cam.detectAruco(img)
 
-		# cÃ¡lculo de FPS real
+		# calculo de FPS real
 		frame_count += 1
 		now = time.time()
 		if now - prev_time >= 1.0:     # a cada 1 segundo
