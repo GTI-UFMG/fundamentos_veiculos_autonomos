@@ -7,7 +7,6 @@
 # DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
-import RPi.GPIO as GPIO
 import time
 
 BUZZER_PIN = 17
@@ -19,17 +18,55 @@ class Buzzer:
     ########################################
     # construtor
     def __init__(self):
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(BUZZER_PIN, GPIO.OUT)
+        
+        # Detectar a versao da Raspberry
+        self.rpi_version = self.detect_rpi_version()
+        print(f"[INFO] Detected Raspberry Pi {self.rpi_version}")
+        
+        # Raspberry Pi 5
+        if self.rpi_version == 5:
+            import lgpio as GPIO
+            self.GPIO = GPIO
+            # abre o chip GPIO0 (principal)
+            self.chip = self.GPIO.gpiochip_open(0)
+            # configura o pino como saida
+            self.GPIO.gpio_claim_output(self.chip, BUZZER_PIN)
+
+        # Raspberry Pi 3/4
+        else:
+            import RPi.GPIO as GPIO
+            self.GPIO = GPIO
+            self.GPIO.setmode(GPIO.BCM)
+            self.GPIO.setup(BUZZER_PIN, GPIO.OUT)
+        
+    ##############################################
+    # Raspberry Pi version detector
+    ##############################################
+    def detect_rpi_version(self):
+        try:
+            with open('/proc/device-tree/model') as f:
+                return 5 if 'Raspberry Pi 5' in f.read() else 4
+        except:
+            return 4  # Default caso nao consiga detectar
     
     ########################################
     # beep com timer
     def beep(self, timer=0.2, n=1):        
         for _ in range(n):
-            GPIO.output(BUZZER_PIN, GPIO.HIGH)  # Liga buzzer
-            time.sleep(timer)
-            GPIO.output(BUZZER_PIN, GPIO.LOW)   # Desliga buzzer
-            time.sleep(timer)
+            
+            # Raspberry Pi 5
+            if self.rpi_version == 5:
+                self.GPIO.gpio_write(self.chip, BUZZER_PIN, 1)  # Liga buzzer
+                time.sleep(timer)
+                self.GPIO.gpio_write(self.chip, BUZZER_PIN, 0)  # Desliga buzzer
+                time.sleep(timer)
+
+            # Raspberry Pi 3/4
+            else:                
+                self.GPIO.output(BUZZER_PIN, GPIO.HIGH)  # Liga buzzer
+                time.sleep(timer)
+                self.GPIO.output(BUZZER_PIN, GPIO.LOW)   # Desliga buzzer
+                time.sleep(timer)
     
     ########################################
     # musiquinha final
@@ -38,12 +75,25 @@ class Buzzer:
             pattern = [0.1, 0.1, 0.1, 0.3, 0.1, 0.5]
             for d in pattern:
                 self.beep(timer=d)
-            time.sleep(0.01)
+            time.sleep(0.1)
         
     ########################################
-    # fecha
+    # Limpeza dos pinos
+    ########################################
+    def cleanup(self):
+        if self.rpi_version == 5:
+            self.GPIO.gpio_write(self.chip, BUZZER_PIN, 0)
+            self.GPIO.gpiochip_close(self.chip)
+        else:
+            self.GPIO.output(BUZZER_PIN, GPIO.LOW)   # Desliga buzzer
+            self.GPIO.cleanup()
+
+    ########################################
+    # Destrutor
+    ########################################
     def close(self):
-        GPIO.cleanup()
+        #Ensure cleanup is called when object is deleted
+        self.cleanup()
 
 ########################################
 # main test
@@ -54,11 +104,11 @@ if __name__=="__main__":
     t0 = time.time()
     try:
         while (time.time() - t0) <= 5.0:
-            bz.beep()
-            
+            bz.beep(timer=0.3)
+        
+        time.sleep(1.0)    
+        bz.victory_tune(n=1)
     except KeyboardInterrupt:
-        bz.close()
-
-    bz.victory_tune(n=2)
-    
+        None
+        
     bz.close()
