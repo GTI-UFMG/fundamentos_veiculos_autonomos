@@ -30,6 +30,7 @@ CAR = {
 		'RW' 		: 0.08,				# raio da roda [m]
 		'MI' 		: 0.04,				# constante de friccao
 		'GRAV'   	: 9.81, 			# gravidade [m/s^2]
+		'PERIOD'	: 50.0,				# periodo de amostragem dos sensores
 	}
 
 ########################################
@@ -47,8 +48,10 @@ class Car:
 		
 		# tempo
 		self.t = 0.0
-		# tempo de amostragem
-		self.dt = 0.05
+		# tempo de amostragem preterido
+		self.sample_rate = 1.0/CAR['PERIOD']
+		# tempo de amostragem real medido
+		self.dt = 1.0/CAR['PERIOD']
 		
 		# velocidade de comando
 		self.vref = 0.0
@@ -166,14 +169,14 @@ class Car:
 		return self.p, self.v, self.a, self.th, self.w, self.t
 	
 	########################################
-	def step(self, dt=0.02):
-		
+	# passo para atualizar sensores
+	def step(self):
 		# tempo anterior
 		t0 = self.t
 		
 		# espera o periodo de delta t
 		elapsed_time = self.getTime() - self.tinit - t0
-		time.sleep(np.max([0.0, dt-elapsed_time]))
+		time.sleep(np.max([0.0, self.sample_rate - elapsed_time]))
 		
 		# condicoes iniciais
 		self.getStates()
