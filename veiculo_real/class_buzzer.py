@@ -76,9 +76,9 @@ class Buzzer:
                     self.GPIO.gpio_write(self.chip, BUZZER_PIN, 0)  # Desliga buzzer
                 # Raspberry Pi 3/4
                 else:                
-                    self.GPIO.output(BUZZER_PIN, GPIO.HIGH)  # Liga buzzer
+                    self.GPIO.output(BUZZER_PIN, self.GPIO.HIGH)  # Liga buzzer
                     time.sleep(timer)
-                    self.GPIO.output(BUZZER_PIN, GPIO.LOW)   # Desliga buzzer
+                    self.GPIO.output(BUZZER_PIN, self.GPIO.LOW)   # Desliga buzzer
                 
                 time.sleep(timer)
                 with self.lock:
@@ -117,7 +117,7 @@ class Buzzer:
             self.GPIO.gpio_write(self.chip, BUZZER_PIN, 0)
             self.GPIO.gpiochip_close(self.chip)
         else:
-            self.GPIO.output(BUZZER_PIN, GPIO.LOW)   # Desliga buzzer
+            self.GPIO.output(BUZZER_PIN, self.GPIO.LOW)   # Desliga buzzer
             self.GPIO.cleanup()
             
     ########################################

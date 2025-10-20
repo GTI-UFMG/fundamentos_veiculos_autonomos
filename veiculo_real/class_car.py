@@ -12,10 +12,10 @@ import time, os
 from datetime import datetime
 import class_encoder
 import class_servos
+import class_buzzer
 import class_filter
 import class_ultrasonic
 import class_imu
-import class_buzzer
 
 ########################################
 # GLOBAIS
@@ -259,22 +259,30 @@ class Car:
 		af = self.a_filt.filter(a)
 		
 		return af
-					
+	
+	########################################
+	# seta referencia de controle
+	def setRef(self, vref):
+		# em caso de emergencia, pare
+		if self.emergencia:
+			self.vref = 0.0
+		else:		
+			# referencia filtrada de velocidade
+			self.vref = self.vref_filt.filter(vref)
+			self.vref = np.clip(self.vref, 0.0, CAR['VELMAX'])
+			
+		return self.vref
+			
 	########################################
 	# seta torque do veiculo
 	def setVel(self, vref):
 		
 		# ganhos
-		Kp = 1.0
+		Kp = 0.4
 		Kd = 0.2
 		
-		# em caso de emergencia, pare
-		if self.emergencia:
-			vref = 0.0
-		else:		
-			# referencia filtrada de velocidade
-			self.vref = self.vref_filt.filter(vref)
-			self.vref = np.clip(self.vref, 0.0, CAR['VELMAX'])
+		# seta referencia
+		self.setRef(vref)
 		
 		# controle de velocidade
 		u = Kp*(self.vref - self.v) + Kd*(-self.a)
@@ -384,6 +392,7 @@ class Car:
 		self.odometer.close()
 		self.atuador.close()
 		self.us.close()
+		self.imu.close()
 		if self.parameters['camera']:
 			self.cam.close()
 			
