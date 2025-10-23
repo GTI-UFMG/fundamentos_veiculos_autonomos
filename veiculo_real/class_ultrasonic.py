@@ -59,11 +59,11 @@ class Ultrasonic:
 		if self.rpi_version == 5:
 			import lgpio as GPIO
 			self.GPIO = GPIO
-			self.handleChip = GPIO.gpiochip_open(0)
+			self.handleChip = self.GPIO.gpiochip_open(0)
 			self.triggerPin = triggerPin if triggerPin is not None else TRIGGER_PIN
 			self.echoPin = echoPin if echoPin is not None else ECHO_PIN
-			GPIO.gpio_claim_output(self.handleChip, self.triggerPin)
-			GPIO.gpio_claim_input(self.handleChip, self.echoPin)
+			self.GPIO.gpio_claim_output(self.handleChip, self.triggerPin)
+			self.GPIO.gpio_claim_input(self.handleChip, self.echoPin)
 			
 			# funcao de leitura pra raspberry pi 5
 			self.read_func = lambda: self.GPIO.gpio_read(self.handleChip, self.echoPin)
@@ -74,10 +74,11 @@ class Ultrasonic:
 			self.GPIO = GPIO
 			self.triggerPin = triggerPin if triggerPin is not None else TRIGGER_PIN
 			self.echoPin = echoPin if echoPin is not None else ECHO_PIN
-			GPIO.setwarnings(False)
+			self.GPIO.setwarnings(False)
 			GPIO.setmode(GPIO.BCM)
-			GPIO.setup(self.triggerPin, GPIO.OUT)
-			GPIO.setup(self.echoPin, GPIO.IN)
+			self.GPIO.setmode(GPIO.BCM)
+			self.GPIO.setup(self.triggerPin, GPIO.OUT)
+			self.GPIO.setup(self.echoPin, GPIO.IN)
 			
 			# funcao de leitura pra raspberry pi 4
 			self.read_func = lambda: self.GPIO.input(self.echoPin)
