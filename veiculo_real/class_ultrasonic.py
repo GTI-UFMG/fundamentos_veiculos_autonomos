@@ -104,6 +104,7 @@ class Ultrasonic:
 	# thread de leitura continua
 	########################################
 	def read(self):
+		time.sleep(1.0)
 		while not self.stop.is_set():
 			d = self.getMeasure()
 			with self.lock:
