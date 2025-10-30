@@ -122,19 +122,24 @@ class Ultrasonic:
 	########################################
 	def getMeasure(self):
 		
-		# Raspberry Pi 5
-		if self.rpi_version == 5:
-			# set trigger to HIGH
-			self.GPIO.gpio_write(self.handleChip, self.triggerPin, 1)
-			time.sleep(0.00002)  # 20 us
-			self.GPIO.gpio_write(self.handleChip, self.triggerPin, 0)
+		try:
+			# Raspberry Pi 5
+			if self.rpi_version == 5:
+				# set trigger to HIGH
+				self.GPIO.gpio_write(self.handleChip, self.triggerPin, 1)
+				time.sleep(0.00002)  # 20 us
+				self.GPIO.gpio_write(self.handleChip, self.triggerPin, 0)
 
-		# Raspberry Pi 3/4
-		else:
-			# set trigger to HIGH
-			self.GPIO.output(self.triggerPin, True)
-			time.sleep(0.00002)  # 20 us
-			self.GPIO.output(self.triggerPin, False)
+			# Raspberry Pi 3/4
+			else:
+				# set trigger to HIGH
+				self.GPIO.output(self.triggerPin, True)
+				time.sleep(0.00002)  # 20 us
+				self.GPIO.output(self.triggerPin, False)
+		
+		# se deu erro, retorna leitura atual
+		except:
+			return self.measured
 
 		# 1) esperar o inicio do eco (subir para 1). Timeout evita travar.
 		ok1, startTime = self._measure_pulse(1)
