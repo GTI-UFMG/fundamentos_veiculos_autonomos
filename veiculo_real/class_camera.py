@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 ########################################
 # Disciplina: Topicos em Engenharia de Controle e Automacao IV (ENG075): 
-# Fundamentos de Veiculos Autonomos - 2025/2
+# Fundamentos de Veiculos Autonomos - 2026/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
 # Cursos: Engenharia de Controle e Automacao
 # DELT - Escola de Engenharia
@@ -11,13 +11,14 @@ import time
 import os
 os.environ["QT_QPA_PLATFORM"] = "xcb"  # forca backend X11
 import cv2
-from ultralytics import YOLO
+from pathlib import Path
 
+########################################
+# Globais
+########################################
 RESOLUTION = (640, 480)  # (width, height)
 FRAME_RATE = 30          # target FPS (best-effort)
-CAMERA_INDEX = 0         # default USB webcam index
-
-MODEL = "outros/best.pt" # brazilian-traffic-signs.v3i.yolov8
+MODEL = Path(__file__).resolve().parent / "modelos" / "best.pt" # brazilian-traffic-signs.v3i.yolov8
 
 ########################################
 # classe da camera (USB webcam via OpenCV)
@@ -26,27 +27,30 @@ class Camera:
 	########################################
 	# construtor
 	def __init__(	self, 
-					cam_index: int = CAMERA_INDEX, 
+					cam_index: int = None, 
 					resolution=RESOLUTION, 
 					fps: int = FRAME_RATE):
 		
+		# identifica camera disponivel
+		if cam_index is None:
+			cam_index = self.find_camera()
+			if cam_index is None:
+				raise RuntimeError("Camera nao encontrada.")
+		
+		# cria a camera		
 		self.cap = cv2.VideoCapture(cam_index, cv2.CAP_V4L2)
-
 		if not self.cap.isOpened():
 			# tenta sem CAP_V4L2, caso contrario
 			self.cap = cv2.VideoCapture(cam_index)
 			if not self.cap.isOpened():
-				raise RuntimeError(f"Nao foi possi­vel abrir a webcam (index={cam_index}).")
+				raise RuntimeError(f"Nao foi possivel abrir a camera (index={cam_index}).")
 
-		# tenta definir codec MJPG para melhor desempenho (se a cÃ¢mera suportar)
-		try:
-			#fourcc = cv2.VideoWriter_fourcc(*"MJPG")
-			fourcc = cv2.VideoWriter_fourcc(*"YUY2")
-			self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-		except Exception:
-			pass
+		# tenta definir codec MJPG para melhor desempenho (se a camera suportar)
+		#fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+		fourcc = cv2.VideoWriter_fourcc(*"YUY2")
+		self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
 
-		# configura resoluÃ§Ã£o
+		# configura resolucao
 		w, h = resolution
 		self.cap.set(cv2.CAP_PROP_FRAME_WIDTH,  int(w))
 		self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(h))
@@ -58,45 +62,44 @@ class Camera:
 		# 0 = off, 1 = on
 		if self.cap.get(cv2.CAP_PROP_AUTOFOCUS) != -1:
 			self.cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
-		# tenta ajustar exposiÃ§Ã£o automÃ¡tica (opcional)
+		# tenta ajustar exposicao automatica (opcional)
 		if self.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE) != -1:
-			# Em muitas cÃ¢meras do Linux, 1 significa Auto, 0.25 Manual; varia por driver
-			try:
-				self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
-			except Exception:
-				pass
-
-		# warmup
-		t0 = time.time()
-		while time.time() - t0 < 0.5:
-			self.cap.read()
+			# Em muitas cameras do Linux, 1 significa Auto, 0.25 Manual; varia por driver
+			self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
 		
-		################
 		# modelo da YOLO
-		self.model = YOLO(MODEL)
+		self.model = None
 		
-		################
-		# Load the dictionary of ArUco markers and create a parameters object for ArUco detection.
-		if hasattr(cv2.aruco, "ArucoDetector"):
-			dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
-			parameters = cv2.aruco.DetectorParameters()
-			detector   = cv2.aruco.ArucoDetector(dictionary, parameters)
-			self.detect_fn  = lambda img: detector.detectMarkers(img)
-		else:
-			dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_100)
-			parameters = cv2.aruco.DetectorParameters_create()
-			self.detect_fn  = lambda img: cv2.aruco.detectMarkers(img, dictionary, parameters=parameters)
+		# biblioteca de Arucos
+		self.detect_fn = None
 
 	########################################
+	# procura uma camera disponivel
+	def find_camera(self):
+		for index in range(10):
+			cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
+			if cap.isOpened():
+				ok, frame = cap.read()
+				cap.release()
+				if ok and frame is not None:
+					return index
+		return None
+		
+	########################################
 	# pega resolucao da imagem
-	def getResolution(self):
+	def get_resolution(self):
 		w = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
 		h = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
 		return int(w), int(h)
+	
+	########################################
+	# pega taxa de quadros configurada
+	def get_fps(self):
+		return self.cap.get(cv2.CAP_PROP_FPS)
 
 	########################################
 	# captura uma imagem da camera
-	def getImage(self, gray: bool = False):
+	def get_image(self, gray: bool = False):
 		ok, frame = self.cap.read()
 		if not ok or frame is None:
 			return None
@@ -109,7 +112,11 @@ class Camera:
 			
 	########################################
 	# modelo detector de placas de transito
-	def detectPlaca(self, img):
+	def detect_placa(self, img):
+		
+		if self.model is None:
+			from ultralytics import YOLO
+			self.model = YOLO(str(MODEL))
 		
 		# inferencia
 		results = self.model.predict(img, conf=0.25, iou=0.45, imgsz=640, verbose=False)
@@ -121,10 +128,26 @@ class Camera:
 
 	########################################
 	# detecta marcadores de AR
-	def detectAruco(self, img, aruco_id=23):
+	def detect_aruco(self, img, aruco_id=23):
+		
+		# inicializa detector ArUco somente no primeiro uso
+		if self.detect_fn is None:
+			# Load the dictionary of ArUco markers and create a parameters object for ArUco detection.
+			if hasattr(cv2.aruco, "ArucoDetector"):
+				dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
+				parameters = cv2.aruco.DetectorParameters()
+				detector   = cv2.aruco.ArucoDetector(dictionary, parameters)
+				self.detect_fn  = lambda img: detector.detectMarkers(img)
+			else:
+				dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_100)
+				parameters = cv2.aruco.DetectorParameters_create()
+				self.detect_fn  = lambda img: cv2.aruco.detectMarkers(img, dictionary, parameters=parameters)
 		
 		# Detect ArUco markers in the frame.
 		corners, ids, rejected = self.detect_fn(img)
+		
+		# inicialmente, marcador desejado nao foi encontrado
+		center = None
 		
 		# desenha contornos + ids na imagem colorida
 		if ids is not None and len(ids) > 0:
@@ -134,77 +157,76 @@ class Camera:
 				if m_id == aruco_id:
 					pts = corners[i][0].astype(int)
 					cx, cy = pts[:,0].mean(), pts[:,1].mean()
+					center = (cx, cy)
 					cv2.circle(img, (int(cx), int(cy)), 6, (0,255,0), -1)
-		else:
-			# se quiser, mostre rejeitados (em vermelho)
-			#cv2.aruco.drawDetectedMarkers(img, rejected, borderColor=(0,0,255))
-			pass
 		
-		try:
-			return img, (cx, cy)
-		except:
-			return img, None
-		
-	########################################
-	# show image
-	def show(self, img, fps=None):
-		
-		# coloca informacao de fps
-		if fps is not None:
-			cv2.putText(img, f"FPS: {fps:.1f}", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
-		
-		cv2.imshow('Vehicle front camera', img)
-		
-		# 1 ms para manter janela responsiva
-		if cv2.waitKey(1) & 0xFF == ord('q'):
-			# permite sair com 'q' durante o teste
-			raise KeyboardInterrupt
+		return img, center
 			
 	########################################
-	# destrutor
+	# mostra imagem
+	def show(self, img, fps=None):
+
+		if fps is not None:
+			cv2.putText(img, f"FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+		
+		# mostra imagem
+		cv2.imshow("Vehicle front camera", img)
+
+		# retorna False se usuario apertar 'q'
+		key = cv2.waitKey(1) & 0xFF
+		return key != ord("q")
+			
+	########################################
+	# fecha camera
 	def close(self):
-		try:
-			if hasattr(self, 'cap') and self.cap is not None:
-				self.cap.release()
-		except Exception:
-			pass
+		if hasattr(self, 'cap') and self.cap is not None:
+			self.cap.release()
 		cv2.destroyAllWindows()
 
 ########################################
 # main test
 ########################################
 if __name__ == "__main__":
+	
+	# cria a camera
 	cam = Camera()
 	print('Camera ok')
-	t0 = time.time()
+	print(f"Resolucao: {cam.get_resolution()}")
+	print(f"FPS configurado: {cam.get_fps():.1f}")
+	
+	try:
+		t0 = time.time()
+		prev_time = time.time()    # para medir FPS
+		frame_count = 0
+		fps = FRAME_RATE
 
-	prev_time = time.time()    # para medir FPS
-	frame_count = 0
-	fps = FRAME_RATE
+		while (time.time() - t0) <= 20.0:
+			img = cam.get_image(gray=False)
+			if img is None:
+				print('Nao foi possi­vel capturar a imagem.')
+				continue
+			
+			# detecta placas
+			#img = cam.detect_placa(img)
+			
+			# detecta Arucos
+			img, _ = cam.detect_aruco(img)
 
-	while (time.time() - t0) <= 20.0:
-		img = cam.getImage(gray=False)
-		if img is None:
-			print('Nao foi possi­vel capturar a imagem.')
-			continue
-		
-		# detecta placas
-		#img = cam.detectPlaca(img)
-		
-		# detecta Arucos
-		img, _ = cam.detectAruco(img)
+			# calculo de FPS real
+			frame_count += 1
+			now = time.time()
+			if now - prev_time >= 1.0:     # a cada 1 segundo
+				fps = frame_count / (now - prev_time)
+				prev_time = now
+				frame_count = 0
+			  
+			# mostra imagem
+			if not cam.show(img, fps=fps):
+				break
+			
+	except KeyboardInterrupt:
+		pass
 
-		# calculo de FPS real
-		frame_count += 1
-		now = time.time()
-		if now - prev_time >= 1.0:     # a cada 1 segundo
-			fps = frame_count / (now - prev_time)
-			#print(f"FPS real: {fps:.2f}")
-			prev_time = now
-			frame_count = 0
-		  
-		# mostra imagem
-		cam.show(img, fps=fps)
-		
 	# fecha tudo
-	cam.close()
+	finally:
+		cam.close()
