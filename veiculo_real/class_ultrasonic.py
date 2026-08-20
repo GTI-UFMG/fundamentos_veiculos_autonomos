@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 ########################################
 # Disciplina: Topicos em Engenharia de Controle e Automacao IV (ENG075): 
-# Fundamentos de Veiculos Autonomos - 2025/2
+# Fundamentos de Veiculos Autonomos - 2026/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
 # Cursos: Engenharia de Controle e Automacao
 # DELT - Escola de Engenharia
@@ -10,18 +10,24 @@
 import time
 import numpy as np
 import threading
+import re
+import subprocess
 
+########################################
+# Globais
+########################################
 """
 GPIO mode options: BOARD/BCM
 # Raspberry Pi 3/4: BOARD pin numbers
 # Raspberry Pi 5:   BCM (Broadcom System-On-Chip (SOC)) pin numbers
-# triggerPin = 18 (BOARD) and 24 (BCM)
-#    echoPin = 24 (BOARD) and  8 (BCM)
+# trigger_pin = 18 (BOARD) and 24 (BCM)
+#    echo_pin = 24 (BOARD) and  8 (BCM)
 """
-
 GAIN = 343.0/2.0
 TRIGGER_PIN = 24
 ECHO_PIN = 8
+SAMPLE_TIME = 0.1  # 100 ms -> 10 Hz
+SENSOR_TIMEOUT  = 0.30   	# tempo maximo sem medida [s]
 
 ############################################
 # Ultrasonic Class for Raspberry Pi 4 or 5
@@ -30,26 +36,27 @@ class Ultrasonic:
 	########################################
 	# Constructor
 	########################################
-	def __init__(self, triggerPin=None, echoPin=None, minRange=0.0, maxRange=4.0):
+	def __init__(self, trigger_pin=None, echo_pin=None, min_range=0.0, max_range=4.0):
 		
 		"""
 		Initializes the ultrasonic sensor with given trigger and echo pins.
 		Configures GPIO settings and set sensor limits
 
 		Args:
-			triggerPin (int): GPIO pin number for the trigger signal.
-			echoPin (int): GPIO pin number for the echo signal.
-			minRange (float): Minimum measurable distance in meters.
-			maxRange (float): Maximum measurable distance in meters.
+			trigger_pin (int): GPIO pin number for the trigger signal.
+			echo_pin (int): GPIO pin number for the echo signal.
+			min_range (float): Minimum measurable distance in meters.
+			max_range (float): Maximum measurable distance in meters.
 		"""
 		
 		# limites do sensor
-		self.minRange = minRange
-		self.maxRange = maxRange
+		self.min_range = min_range
+		self.max_range = max_range
 		
 		# ultima leitura valida
-		self.measured = 0.0
-		self.dist = self.measured
+		self.dist = 0.0
+		self.valid = False
+		self.last_measurement = time.monotonic()
 
 		# Detectar a versao da Raspberry
 		self.rpi_version = self.detect_rpi_version()
@@ -59,35 +66,36 @@ class Ultrasonic:
 		if self.rpi_version == 5:
 			import lgpio as GPIO
 			self.GPIO = GPIO
-			self.handleChip = self.GPIO.gpiochip_open(0)
-			self.triggerPin = triggerPin if triggerPin is not None else TRIGGER_PIN
-			self.echoPin = echoPin if echoPin is not None else ECHO_PIN
-			self.GPIO.gpio_claim_output(self.handleChip, self.triggerPin)
-			self.GPIO.gpio_claim_input(self.handleChip, self.echoPin)
+			# detecta o chip
+			chip_id = self._find_gpiochip()
+			self.handle_chip = self.GPIO.gpiochip_open(chip_id)
+			self.trigger_pin = trigger_pin if trigger_pin is not None else TRIGGER_PIN
+			self.echo_pin = echo_pin if echo_pin is not None else ECHO_PIN
+			self.GPIO.gpio_claim_output(self.handle_chip, self.trigger_pin)
+			self.GPIO.gpio_claim_input(self.handle_chip, self.echo_pin)
 			
 			# funcao de leitura pra raspberry pi 5
-			self.read_func = lambda: self.GPIO.gpio_read(self.handleChip, self.echoPin)
+			self.read_func = lambda: self.GPIO.gpio_read(self.handle_chip, self.echo_pin)
 
 		# Raspberry Pi 3/4
 		else:
 			import RPi.GPIO as GPIO
 			self.GPIO = GPIO
-			self.triggerPin = triggerPin if triggerPin is not None else TRIGGER_PIN
-			self.echoPin = echoPin if echoPin is not None else ECHO_PIN
+			self.trigger_pin = trigger_pin if trigger_pin is not None else TRIGGER_PIN
+			self.echo_pin = echo_pin if echo_pin is not None else ECHO_PIN
 			self.GPIO.setwarnings(False)
-			GPIO.setmode(GPIO.BCM)
 			self.GPIO.setmode(GPIO.BCM)
-			self.GPIO.setup(self.triggerPin, GPIO.OUT)
-			self.GPIO.setup(self.echoPin, GPIO.IN)
+			self.GPIO.setup(self.trigger_pin, GPIO.OUT)
+			self.GPIO.setup(self.echo_pin, GPIO.IN)
 			
 			# funcao de leitura pra raspberry pi 4
-			self.read_func = lambda: self.GPIO.input(self.echoPin)
+			self.read_func = lambda: self.GPIO.input(self.echo_pin)
 		
 		# lock de secao critica
 		self.lock = threading.Lock()
 		self.stop = threading.Event()
 		# thread de leitura
-		self.thread = threading.Thread(target=self.read, daemon=True)
+		self.thread = threading.Thread(target=self._read, daemon=True)
 		self.thread.start()
 
 	##############################################
@@ -97,83 +105,106 @@ class Ultrasonic:
 		try:
 			with open('/proc/device-tree/model') as f:
 				return 5 if 'Raspberry Pi 5' in f.read() else 4
-		except:
+		except OSError:
 			return 4  # Default caso nao consiga detectar
+	
+	##############################################
+	# Detecta gpiochip
+	##############################################
+	def _find_gpiochip(self):
+		try:
+			out = subprocess.check_output(["gpiodetect"], text=True)
+			for line in out.splitlines():
+				if "pinctrl-rp1" in line:
+					match = re.match(r"gpiochip(\d+)", line)
+
+					if match:
+						return int(match.group(1))
+
+		except (OSError, subprocess.SubprocessError):
+			pass
+
+		raise RuntimeError("GPIO chip principal da Raspberry Pi 5 nao encontrado.")
 
 	########################################
 	# thread de leitura continua
 	########################################
-	def read(self):
-		time.sleep(1.0)
+	def _read(self):
+		# inicializacao
+		time.sleep(0.1)
+
+		# loop de leitura
 		while not self.stop.is_set():
-			d = self.getMeasure()
-			with self.lock:
-				self.dist = d
+			d = self.get_measure()
+			if d is not None:
+				with self.lock:
+					self.dist = d
+					self.last_measurement = time.monotonic()
+					self.valid = True
+
+			self.stop.wait(SAMPLE_TIME)
 	
 	########################################
 	# Funcao para medir distancia
-	########################################
-	def getDistance(self):
+	########################################			
+	def get_distance(self):
 		with self.lock:
-			return self.dist
-		
+			# medida eh valida?
+			if (time.monotonic() - self.last_measurement) > SENSOR_TIMEOUT:
+				self.valid = False
+
+			return self.dist, self.valid
+	
+	########################################
+	# escreve no pino de trigger
+	def _set_trigger(self, state):
+		# Raspberry Pi 5
+		if self.rpi_version == 5:
+			self.GPIO.gpio_write(self.handle_chip, self.trigger_pin, 1 if state else 0)
+		# Raspberry Pi 3/4
+		else:
+			self.GPIO.output(self.trigger_pin, True if state else False)
+			
 	########################################
 	# Funcao para medir distancia
 	########################################
-	def getMeasure(self):
-		
-		try:
-			# Raspberry Pi 5
-			if self.rpi_version == 5:
-				# set trigger to HIGH
-				self.GPIO.gpio_write(self.handleChip, self.triggerPin, 1)
-				time.sleep(0.00002)  # 20 us
-				self.GPIO.gpio_write(self.handleChip, self.triggerPin, 0)
+	def get_measure(self):
 
-			# Raspberry Pi 3/4
-			else:
-				# set trigger to HIGH
-				self.GPIO.output(self.triggerPin, True)
-				time.sleep(0.00002)  # 20 us
-				self.GPIO.output(self.triggerPin, False)
-		
-		# se deu erro, retorna leitura atual
-		except:
-			return self.measured
+		# envia pulso de trigger
+		self._set_trigger(True)
+		time.sleep(0.00002)
+		self._set_trigger(False)
 
-		# 1) esperar o inicio do eco (subir para 1). Timeout evita travar.
-		ok1, startTime = self._measure_pulse(1)
+		# espera inicio do eco
+		ok1, start_time = self._measure_pulse(1)
 
-		# 2) medir duracao do pulso alto (ate cair para 0). Outro timeout.
-		ok2, stopTime = self._measure_pulse(0)
+		# mede duracao do eco
+		ok2, stop_time = self._measure_pulse(0)
+
+		# deu tudo certo?
+		if not ok1 or not ok2:
+			return None
+
+		# calcula distancia
+		time_elapsed = stop_time - start_time
+		distance = GAIN * time_elapsed
 		
-		# forca uma pequena espera para evitar erro de GPIO
-		time.sleep(0.01)
-		
-		if (not ok1) or (not ok2):
-			return self.measured #self.maxRange
-		else:
-			# time difference between start and arrival
-			timeElapsed = stopTime - startTime
-			
-			# calculate distance (in meters)
-			distance = GAIN * timeElapsed
-			self.measured = np.clip(distance, self.minRange, self.maxRange)
-			
-			# Returns: distance (float): The measured distance in meters, constrained by min/max range
-			return self.measured
+		if not (self.min_range <= distance <= self.max_range):
+			return None
+
+		return distance
 
 	########################################
 	# mede os pulsos com timeout
 	########################################
 	def _measure_pulse(self, level, timeout_s=0.03):
 		"""Espera por level (0/1) com timeout; retorna (ok, t)."""
-		deadline = time.time() + timeout_s
+		deadline = time.monotonic() + timeout_s
 		while self.read_func() != level:
-			if time.time() > deadline:
+			if time.monotonic() > deadline:
 				return False, None
 		# sucesso	
-		return True, time.time()
+		return True, time.monotonic()
 		
 	########################################
 	# Limpeza dos pinos
@@ -181,15 +212,15 @@ class Ultrasonic:
 	def cleanup(self):
 		# Closes the GPIO connection.
 		if self.rpi_version == 5:
-			self.GPIO.gpiochip_close(self.handleChip)
+			self.GPIO.gpiochip_close(self.handle_chip)
 		else:
-			self.GPIO.cleanup()
+			self.GPIO.cleanup(self.trigger_pin)
+			self.GPIO.cleanup(self.echo_pin)
 
 	########################################
 	# Destrutor
 	########################################
 	def close(self):
-		
 		# termina a thread
 		self.stop.set()
 		self.thread.join()
@@ -203,10 +234,11 @@ if __name__ == '__main__':
 	
 	import matplotlib.pyplot as plt
 	plt.ion()
-	fig = plt.figure(1)
+	fig = plt.figure(figsize=(8, 4))
 
 	ts = []
 	dist = []
+	valids = []
 	m = 50
 
 	# cria o ultrasom
@@ -216,19 +248,33 @@ if __name__ == '__main__':
 	t0 = time.time()
 	while (time.time() - t0) <= 20.0:
 		
-		dist.append(us.getDistance())
+		# le sensor e salva dados
+		distance, valid = us.get_distance()
+		dist.append(distance)
+		valids.append(valid)
 		ts.append(time.time() - t0)
 		
 		if len(dist) % 10 == 0:
 			plt.clf()
-			plt.plot(ts[-m:], dist[-m:], 'r')
+
+			# ultimas m amostras
+			t_plot = np.array(ts[-m:])
+			d_plot = np.array(dist[-m:])
+			v_plot = np.array(valids[-m:])
+
+			# pontos validos
+			plt.scatter(t_plot[v_plot], d_plot[v_plot], color='blue', label='Validos')
+
+			# pontos invalidos
+			plt.scatter(t_plot[~v_plot], d_plot[~v_plot], color='red', label='Invalidos')
+
 			plt.xlabel('Time [s]')
 			plt.ylabel('Distance [m]')
-			plt.ylim([us.minRange-0.2, us.maxRange+0.2])
+			plt.ylim([us.min_range - 0.2, us.max_range + 0.2])
+			plt.legend()
 			plt.pause(0.1)
-			plt.show()
 		
-		print(f"Distance: {dist[-1]:.2f} [m]", flush=True)
+			print(f"Distance: {dist[-1]:.2f} [m]", flush=True)
 		
 	plt.ioff()
 	us.close()
