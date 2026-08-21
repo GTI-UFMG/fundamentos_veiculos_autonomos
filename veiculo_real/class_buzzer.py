@@ -23,6 +23,7 @@ BUZZER_PIN = 17
 class Buzzer:
 	########################################
 	# construtor
+	########################################
 	def __init__(self):
 		
 		# Detectar a versao da Raspberry
@@ -56,6 +57,7 @@ class Buzzer:
 		
 	##############################################
 	# Raspberry Pi version detector
+	########################################
 	def detect_rpi_version(self):
 		try:
 			with open('/proc/device-tree/model') as f:
@@ -65,6 +67,7 @@ class Buzzer:
 	
 	##############################################
 	# detecta gpio
+	########################################
 	def _find_gpiochip(self):
 		try:
 			out = subprocess.check_output(["gpiodetect"], text=True)
@@ -83,6 +86,7 @@ class Buzzer:
 	
 	########################################
 	# liga/desliga buzzer
+	########################################
 	def _set_buzzer(self, state):
 		# Raspberry Pi 5
 		if self.rpi_version == 5:
@@ -93,51 +97,48 @@ class Buzzer:
 			self.GPIO.output(BUZZER_PIN, self.GPIO.HIGH if state else self.GPIO.LOW)
 	
 	########################################
-	# executa um beep
-	def _beep(self, duration):
+	# executa os beeps
+	########################################		
+	def _beep_pattern(self, durations):
 		try:
-			self._set_buzzer(True)
-			time.sleep(duration)
-
+			for duration in durations:
+				# on
+				self._set_buzzer(True)
+				time.sleep(duration)
+				# off
+				self._set_buzzer(False)
+				time.sleep(0.1)
 		finally:
-			# garante buzzer desligado mesmo em caso de erro
 			self._set_buzzer(False)
 	
 	########################################
-	# dispara um beep
-	def beep(self, duration=0.1, block=False):
+	# dispara umou mais beeps
+	########################################	
+	def beep(self, durations=0.1):
 
-		duration = max(0.0, float(duration))
-
+		# se esta tocando, ignora
 		if self.closed:
 			return False
 
+		# verifica duracoes
+		if isinstance(durations, (int, float)):
+			durations = [durations]
+		durations = [max(0.0, float(d)) for d in durations]
+
 		with self.lock:
-			# se ja existe um beep em andamento, ignora a nova solicitacao
-			if (self.thread is not None and self.thread.is_alive()):
+			if self.thread is not None and self.thread.is_alive():
 				return False
 
-			# cria uma nova thread apenas para este beep
-			self.thread = threading.Thread(target=self._beep, args=(duration,), daemon=True)
+			self.thread = threading.Thread(target=self._beep_pattern, args=(durations,), daemon=True)
 			self.thread.start()
-			thread = self.thread
-
-		# opcionalmente espera o beep terminar
-		if block:
-			thread.join()
 
 		return True
 			
 	########################################
 	# musiquinha final
 	def victory_tune(self):
-
 		pattern = [0.1, 0.1, 0.1, 0.3, 0.1, 0.5]
-		for duration in pattern:
-			# block=True garante sequencia ordenada
-			self.beep(duration=duration, block=True)
-			# pequena pausa entre os beeps
-			time.sleep(0.05)
+		self.beep(pattern)
 			
 	########################################
 	# Limpeza dos pinos
@@ -185,13 +186,13 @@ if __name__=="__main__":
 	bz = Buzzer()
 
 	try:
-		# beep assincrono
-		bz.beep(duration=0.3, block=False)
+		# beep
+		bz.beep(0.3)
 		time.sleep(1.0)
 
-		# beep bloqueante
-		bz.beep(duration=0.5, block=True)
-		time.sleep(0.5)
+		# beep
+		bz.beep(0.5)
+		time.sleep(1.0)
 
 		# sequencia final
 		bz.victory_tune()
