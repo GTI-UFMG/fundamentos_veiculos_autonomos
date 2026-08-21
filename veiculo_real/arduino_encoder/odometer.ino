@@ -1,67 +1,108 @@
-//Test code for LPD3806 Incrimental Rotary Encoder Written By Nnamdi .M 2/29/2020.
-//Will increment or decrement based on shaft position.
-//Lose position once power is shut or reset button is pressed.
-// Red Wire - 5V, Black Wire - GND, Sheild Wire - GND, Green Wire - D2 - Channel A, White Wire - D3 - Channel B.
+// ============================================================
+// Odometria por encoder incremental em quadratura
+// Arduino -> Raspberry Pi via Serial
+//
+// Canal A: gera interrupção
+// Canal B: determina o sentido de rotação
+//
+// Saída serial:
+// RPM com sinal
+// ============================================================
 
-#define BAUDRATE 		(115200)
-#define SAMPLE_DELAY 	(30)
-#define RESOLUTION 		(360)
+#define PIN_A 2
+#define PIN_B 3
 
-const uint8_t PIN_A = 2;   // Green - pin 2 - Digital
-const uint8_t PIN_B = 3;   // White - pin 3 - Digital
+// Número de pulsos do canal A por volta,
+// considerando apenas borda de subida (RISING).
+#define RESOLUTION 360
 
-unsigned int tempo_anterior = (unsigned int)millis();
-long encoder = 0;
-unsigned int pulseCount = 0;
+// Período de amostragem em milissegundos
+#define SAMPLE_TIME 30
+#define BAUDRATE  115200
 
-//----------------------------------------------------------
-// Conta os pulsos do Encoder
-//----------------------------------------------------------
-void conta_pulsos()
+// Pulsos ocorridos desde a última amostragem.
+// Possui sinal: positivo em um sentido e negativo no outro.
+volatile long pulseDelta = 0;
+
+unsigned long previousTime = 0;
+
+// ============================================================
+// Rotina de interrupção
+// ============================================================
+void countPulse()
 {
-	// conta um pulso
-	pulseCount += 1;
-	
-	// Sentido positivo (para frente +1), sentido negativo (para tras -1)
-	// Incrementa se PIN_B está HIGH, senão decrementa
-	encoder += (digitalRead(PIN_B) == HIGH) ? 1 : -1;
- }
-
-//----------------------------------------------------------
-// configuracao inicial
-//----------------------------------------------------------
-void setup() {
-	// Abre a serial
-	Serial.begin(BAUDRATE);
-	
-	// Associa pinos
-	pinMode(PIN_A, INPUT_PULLUP); //INPUT
-	pinMode(PIN_B, INPUT_PULLUP); //INPUT
-
-	// encoder pin on interrupt 0 (pin 2)
-	attachInterrupt(digitalPinToInterrupt(PIN_A), conta_pulsos, RISING);
+    // O estado do canal B determina a direção.
+    // Se o sentido estiver invertido no seu carrinho,
+    // basta trocar +1 por -1.
+    if (digitalRead(PIN_B) == HIGH)
+    {
+        pulseDelta++;
+    }
+    else
+    {
+        pulseDelta--;
+    }
 }
 
-//----------------------------------------------------------
-// main loop
-//----------------------------------------------------------
-void loop() {	
-	// calculo velocidade em rpm
-	unsigned int dt = (unsigned int)millis() - tempo_anterior;
-	float rpm = ( pulseCount * (60000.f/dt) ) / RESOLUTION;
+// ============================================================
+// configuracao inicial
+// ============================================================
+void setup()
+{
+	// Abre a serial
+    Serial.begin(BAUDRATE);
 
-	// Se encoder for negativo, inverte rpm
-	if (encoder < 0) rpm = -rpm;
+	// Associa pinos
+    pinMode(PIN_A, INPUT_PULLUP);
+    pinMode(PIN_B, INPUT_PULLUP);
 
-	// comeca nova contagem
-	pulseCount = 0;
+	// encoder pin on interrupt 0 (pin 2)
+    attachInterrupt(
+        digitalPinToInterrupt(PIN_A),
+        countPulse,
+        RISING
+    );
 
-	// atualiza tempo anterior
-	tempo_anterior = (unsigned int)millis();
+    previousTime = millis();
+}
 
-	// envia informacao com duas casas decimais
-	Serial.println(rpm, 2);
+// ============================================================
+// Loop principal
+// ============================================================
+void loop()
+{
+    unsigned long currentTime = millis();
 
-	// espera proximo ciclo
-	delay(SAMPLE_DELAY);
+    if (currentTime - previousTime >= SAMPLE_TIME)
+    {
+        unsigned long dt = currentTime - previousTime;
+        previousTime = currentTime;
+
+        // ----------------------------------------------------
+        // Copia os dados da ISR de maneira atômica
+        // ----------------------------------------------------
+        noInterrupts();
+
+        long pulses = pulseDelta;
+        pulseDelta = 0;
+
+        interrupts();
+
+        // ----------------------------------------------------
+        // Calcula RPM
+        //
+        // pulses / RESOLUTION = número de voltas no intervalo
+        //
+        // 60000 / dt = número de intervalos equivalentes
+        //               por minuto
+        // ----------------------------------------------------
+        float rpm =
+            ((float)pulses * 60000.0f) /
+            ((float)RESOLUTION * (float)dt);
+
+        // ----------------------------------------------------
+        // Envia para Raspberry
+        // ----------------------------------------------------
+        Serial.println(rpm, 2);
+    }
 }
