@@ -18,12 +18,12 @@ SERVO_STEERING  	= 0
 SERVO_THROTTLE  	= 1
 SERVO_ULTRASONIC	= 8
 
-ZERO_STERRING_ANGLE = 100.0
-MAX_STERRING_ANGLE  = 20.0
-GAIN_STERRING_ANGLE = 50.0/MAX_STERRING_ANGLE
+ZERO_STERRING_ANGLE = np.deg2rad(100.0)
+MAX_STERRING_ANGLE  = np.deg2rad(20.0)
+GAIN_STERRING_ANGLE = np.deg2rad(50.0)/MAX_STERRING_ANGLE
 
-ZERO_THROTTLE_ANGLE = 95.0
-GAIN_TORQUE = 0.4
+ZERO_THROTTLE_ANGLE = np.deg2rad(95.0)
+GAIN_TORQUE = 0.4 # [rad/s] por unidade de pseudo-torque
 
 ########################################
 # Adafruit 16-channel servo driver
@@ -45,20 +45,22 @@ class Servos:
 			raise ValueError("dt deve ser maior que zero.")
 		self.dt = float(dt)
 		
-		# derivada do pwm
-		self.dth_pwm = 0.0
+		# define se o ultrasom vai se mover junto com o estercamento
+		self.ultrasonic = ultrasonic
 		
 		# ajuste fino dos servos
 		self.set_trim()
 		
-		# define se o ultrasom vai se mover junto com o estercamento
-		self.ultrasonic = ultrasonic
+		# derivada do pwm
+		self.dth_pwm = 0.0
 		
 		# definir limite pratico de velocidade do carro
 		self.velmax = np.clip(abs(float(velmax)), 0.3, 1.5)
-		#v =  0.092294 PWM - 8.9370 (curva interpolada com experimentos)
-		self.max_pwm_throttle = (self.velmax + 8.9370)/0.092294
-		self.min_pwm_throttle = 2.0*ZERO_THROTTLE_ANGLE - self.max_pwm_throttle
+		#v =  0.092294 PWM - 8.9370 (curva interpolada com experimentos (PWM em deg))
+		max_pwm_deg = (self.velmax + 8.9370) / 0.092294
+		self.max_pwm_throttle = np.deg2rad(max_pwm_deg)
+		self.min_pwm_throttle = (2.0 * ZERO_THROTTLE_ANGLE - self.max_pwm_throttle)
+		self.max_throttle = (self.max_pwm_throttle - ZERO_THROTTLE_ANGLE)
 		
 		# cria filtro de estercamento
 		self.st_filt = class_filter.MovingAverage(n=10, initial=steering)
@@ -66,7 +68,7 @@ class Servos:
 		self.set_steer(steering)
 		
 		# inicializa tracao
-		self.th_pwm = np.clip(float(throttle), 0.0, np.deg2rad(90.0))
+		self.th_pwm = np.clip(float(throttle), 0.0, self.max_throttle)
 		self._set_pwm(self.th_pwm)
 		
 		##################################
@@ -89,16 +91,16 @@ class Servos:
 			
 			with self.lock:
 				# envia comando de estercamento
-				self.kit.servo[SERVO_STEERING].angle = self.st_pwm
+				self._set_servo(SERVO_STEERING, self.st_pwm)
 			
 				# envia comando de pan da camera/ultrasom
-				self.kit.servo[SERVO_ULTRASONIC].angle = self.pan_pwm
+				self._set_servo(SERVO_ULTRASONIC, self.pan_pwm)
 			
 				# envia comando de tracao (integra pwm)
 				self.th_pwm += self.dth_pwm * self.dt
 			
 				# limita tracao com anti-windup
-				self.th_pwm = np.clip(self.th_pwm, np.deg2rad(0.0), np.deg2rad(90.0))
+				self.th_pwm = np.clip(self.th_pwm, 0.0, self.max_throttle)
 				th_pwm = self.th_pwm
 			
 			# seta commando
@@ -112,15 +114,12 @@ class Servos:
 	# seta PWM do motor
 	def _set_pwm(self, pwm):
 		
-		# converte para graus
-		pwm = np.rad2deg(pwm + self.trim_throttle)
-		
 		# aplica calibracao devido a reducoes do eixo
-		pwm += ZERO_THROTTLE_ANGLE
+		pwm += self.trim_throttle + ZERO_THROTTLE_ANGLE
 		
 		# envia comando
 		self.pwm = np.clip(pwm, self.min_pwm_throttle, self.max_pwm_throttle)
-		self.kit.servo[SERVO_THROTTLE].angle = self.pwm
+		self._set_servo(SERVO_THROTTLE, self.pwm)
 		
 	########################################
 	# emula comando de torque por variacao do throttle
@@ -136,7 +135,7 @@ class Servos:
 	def set_steer(self, st):
 
 		# limita comando em radianos
-		st = np.clip(st, -np.deg2rad(MAX_STERRING_ANGLE), np.deg2rad(MAX_STERRING_ANGLE))
+		st = np.clip(st, -MAX_STERRING_ANGLE, MAX_STERRING_ANGLE)
 
 		# suaviza comando de esterçamento
 		st = self.st_filt.filter(st)
@@ -147,27 +146,24 @@ class Servos:
 		else:
 			self._set_pan(0.0)
 
-		# aplica trim e converte para graus
-		st_deg = np.rad2deg(st + self.trim_steer)
-
 		with self.lock:
-			self.st_pwm = (GAIN_STERRING_ANGLE * st_deg	+ ZERO_STERRING_ANGLE)
+			self.st_pwm = GAIN_STERRING_ANGLE * (st + self.trim_steer) + ZERO_STERRING_ANGLE
 	
 	########################################
 	# angulo de pan da camera/ultrasom (por enquanto nao deve ser operado externamente)
 	def _set_pan(self, ang):
-			
-		ang = np.clip(ang, -np.deg2rad(90.0), np.deg2rad(90.0))
+		
+		half_scale = np.deg2rad(90.0)
+		ang = np.clip(ang, -half_scale, half_scale)
 
 		# angulo centrado em zero
-		pan_pwm = np.rad2deg(ang + self.trim_pan) + 90.0
-
+		pan_pwm = ang + self.trim_pan + half_scale
 		with self.lock:
-			self.pan_pwm = np.clip(pan_pwm, 0.0, 180.0)
+			self.pan_pwm = pan_pwm
         
 	########################################
 	# seta o ajuste fino dos servos (em radianos)
-	def set_trim(self, steer=np.deg2rad(0.0), throttle=np.deg2rad(0.0), pan=np.deg2rad(0.0)):
+	def set_trim(self, steer=0.0, throttle=0.0, pan=0.0):
 		
 		# trim do estercamento
 		self.trim_steer = np.clip(steer, -np.deg2rad(10.0), np.deg2rad(10.0))
@@ -184,11 +180,18 @@ class Servos:
 		time.sleep(0.5)
 		# da toquinos para tras
 		for _ in range(4):
-			self.kit.servo[SERVO_THROTTLE].angle = 0.5*ZERO_THROTTLE_ANGLE
+			self._set_servo(SERVO_THROTTLE, 0.5*ZERO_THROTTLE_ANGLE)
 			time.sleep(0.1)
-			self.kit.servo[SERVO_THROTTLE].angle = ZERO_THROTTLE_ANGLE
+			self._set_servo(SERVO_THROTTLE, ZERO_THROTTLE_ANGLE)
 			time.sleep(0.1)
 	
+	########################################
+	# setar servo (rad -> deg)
+	def _set_servo(self, servo_id, angle_rad):
+		angle_deg = np.rad2deg(angle_rad)
+		angle_deg = np.clip(angle_deg, 0.0, 180.0)
+		self.kit.servo[servo_id].angle = angle_deg
+		
 	########################################
 	# fecha comando dos servos
 	def close(self):
@@ -216,7 +219,7 @@ class Servos:
 if __name__ == "__main__":
 	
 	# calibracao do ESC
-	#ser.kit.servo[SERVO_THROTTLE].angle = 90 #90 (neutro), 180 (maximo), 0 (minimo)
+	#ser._set_servo(SERVO_THROTTLE, x) #com x = 90 (neutro), 180 (maximo), 0 (minimo)
 	
 	# cria servos
 	ser = Servos(ultrasonic=True)
@@ -230,7 +233,7 @@ if __name__ == "__main__":
 			print(f"Tempo = {t:.2f} s", flush=True)
 			
 			# seta estercamento junto com ultrasom
-			ser.set_steer(np.deg2rad(MAX_STERRING_ANGLE)*np.sin(0.5*t))
+			ser.set_steer(MAX_STERRING_ANGLE*np.sin(0.5*t))
 			# seta torque do motor
 			ser.set_torque(0.2*np.sin(0.5*t))
 			# espera
