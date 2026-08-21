@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 ########################################
 # Disciplina: Topicos em Engenharia de Controle e Automacao IV (ENG075): 
-# Fundamentos de Veiculos Autonomos - 2025/2
+# Fundamentos de Veiculos Autonomos - 2026/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
 # Cursos: Engenharia de Controle e Automacao
 # DELT - Escola de Engenharia
@@ -31,50 +31,143 @@ GAIN_TORQUE = 0.4
 class Servos:
 	########################################
 	# construtor
-	def __init__(self, steering=0.0, throttle=0.0, velmax=2.0, ultrasonic=True, use_thread=True):
+	def __init__(self, steering=0.0, throttle=0.0, velmax=1.5, dt=0.03, ultrasonic=True):
+		
+		# lock de secao critica
+		self.lock = threading.Lock()
 		
 		# Set channels to the number of servo channels on your kit.
 		# 8 for FeatherWing, 16 for Shield/HAT/Bonnet.
 		self.kit = ServoKit(channels=16)
 		
 		# periodo de atuacao
-		self.dt = 0.03
+		if dt <= 0.0:
+			raise ValueError("dt deve ser maior que zero.")
+		self.dt = float(dt)
 		
 		# derivada do pwm
 		self.dth_pwm = 0.0
 		
 		# ajuste fino dos servos
-		self.setTrim()
+		self.set_trim()
 		
 		# define se o ultrasom vai se mover junto com o estercamento
 		self.ultrasonic = ultrasonic
 		
-		# definir limite de velocidade do carro
-		self.velmax = np.clip(np.abs(velmax/2.0), 0.3, 3.0)
+		# definir limite pratico de velocidade do carro
+		self.velmax = np.clip(abs(float(velmax)), 0.3, 1.5)
 		#v =  0.092294 PWM - 8.9370 (curva interpolada com experimentos)
 		self.max_pwm_throttle = (self.velmax + 8.9370)/0.092294
 		self.min_pwm_throttle = 2.0*ZERO_THROTTLE_ANGLE - self.max_pwm_throttle
 		
-		# lock de secao critica
-		self.lock = threading.Lock()
-		# thread que promove a atuacao suave
-		self.thread = threading.Thread(target=self.actuator, daemon=True)
-		
 		# cria filtro de estercamento
-		self.st_filt = class_filter.MovingAverage(n=10, initial=ZERO_STERRING_ANGLE)
+		self.st_filt = class_filter.MovingAverage(n=10, initial=steering)
 		# inicializa o estercamento
-		self.setSteer(steering)
+		self.set_steer(steering)
 		
 		# inicializa tracao
-		self._setPWM(throttle)
+		self.th_pwm = np.clip(float(throttle), 0.0, np.deg2rad(90.0))
+		self._set_pwm(self.th_pwm)
 		
+		##################################
+		# evento para matar a thread
+		self.stop = threading.Event()
+		# thread que promove a atuacao suave
+		self.thread = threading.Thread(target=self.actuator, daemon=True)
 		# dispara thread
-		if use_thread:
-			self.thread.start()
+		self.thread.start()
+		
+	########################################
+	# essa eh a thread que garante a atuacao suave e periodica com self.dt
+	def actuator(self):
+		
+		# loop principal
+		while not self.stop.is_set():
+			
+			# comecou novo ciclo
+			start_time = time.monotonic()
+			
+			with self.lock:
+				# envia comando de estercamento
+				self.kit.servo[SERVO_STEERING].angle = self.st_pwm
+			
+				# envia comando de pan da camera/ultrasom
+				self.kit.servo[SERVO_ULTRASONIC].angle = self.pan_pwm
+			
+				# envia comando de tracao (integra pwm)
+				self.th_pwm += self.dth_pwm * self.dt
+			
+				# limita tracao com anti-windup
+				self.th_pwm = np.clip(self.th_pwm, np.deg2rad(0.0), np.deg2rad(90.0))
+				th_pwm = self.th_pwm
+			
+			# seta commando
+			self._set_pwm(th_pwm)
+			
+			# espera terminar o periodo
+			elapsed_time = time.monotonic() - start_time
+			self.stop.wait(max(0.0, self.dt - elapsed_time))
 	
 	########################################
+	# seta PWM do motor
+	def _set_pwm(self, pwm):
+		
+		# converte para graus
+		pwm = np.rad2deg(pwm + self.trim_throttle)
+		
+		# aplica calibracao devido a reducoes do eixo
+		pwm += ZERO_THROTTLE_ANGLE
+		
+		# envia comando
+		self.pwm = np.clip(pwm, self.min_pwm_throttle, self.max_pwm_throttle)
+		self.kit.servo[SERVO_THROTTLE].angle = self.pwm
+		
+	########################################
+	# emula comando de torque por variacao do throttle
+	# T eh um comando de pseudo-torque, nao torque medido em N.m
+	def set_torque(self, T):
+		
+		# transforma torque para rad
+		with self.lock:
+			self.dth_pwm = GAIN_TORQUE*T
+	
+	########################################
+	# seta steer do veiculo (st in rad)		
+	def set_steer(self, st):
+
+		# limita comando em radianos
+		st = np.clip(st, -np.deg2rad(MAX_STERRING_ANGLE), np.deg2rad(MAX_STERRING_ANGLE))
+
+		# suaviza comando de esterçamento
+		st = self.st_filt.filter(st)
+
+		# camera/ultrassom acompanha o esterçamento
+		if self.ultrasonic:
+			self._set_pan(st)
+		else:
+			self._set_pan(0.0)
+
+		# aplica trim e converte para graus
+		st_deg = np.rad2deg(st + self.trim_steer)
+
+		with self.lock:
+			self.st_pwm = (GAIN_STERRING_ANGLE * st_deg	+ ZERO_STERRING_ANGLE)
+	
+	########################################
+	# angulo de pan da camera/ultrasom (por enquanto nao deve ser operado externamente)
+	def _set_pan(self, ang):
+			
+		ang = np.clip(ang, -np.deg2rad(90.0), np.deg2rad(90.0))
+
+		# angulo centrado em zero
+		pan_pwm = np.rad2deg(ang + self.trim_pan) + 90.0
+
+		with self.lock:
+			self.pan_pwm = np.clip(pan_pwm, 0.0, 180.0)
+        
+	########################################
 	# seta o ajuste fino dos servos (em radianos)
-	def setTrim(self, steer=np.deg2rad(0.0), throttle=np.deg2rad(0.0), pan=np.deg2rad(0.0)):
+	def set_trim(self, steer=np.deg2rad(0.0), throttle=np.deg2rad(0.0), pan=np.deg2rad(0.0)):
 		
 		# trim do estercamento
 		self.trim_steer = np.clip(steer, -np.deg2rad(10.0), np.deg2rad(10.0))
@@ -86,138 +179,62 @@ class Servos:
 		self.trim_pan = np.clip(pan, -np.deg2rad(20.0), np.deg2rad(20.0))
 		
 	########################################
-	# essa eh a thread que garante a atuacao suave e periodica com self.dt
-	def actuator(self):
-		
-		# pwm inicial
-		th_pwm = 0.0
-		
-		while True:
-			# comecou novo ciclo
-			start_time = time.time()
-			
-			# envia comando de estercamento
-			with self.lock:
-				# filtra para nao dar tranco na direcao
-				st_pwm = self.st_filt.filter(self.st_pwm)
-			st_pwm = np.clip(st_pwm, 0.0, 180.0)
-			self.kit.servo[SERVO_STEERING].angle = st_pwm
-			
-			# envia comando de tracao
-			with self.lock:
-				# integra pwm
-				dt = self.dt
-				th_pwm += self.dth_pwm*dt
-			
-			# velocidade apenas positiva
-			th_pwm = np.clip(th_pwm, np.deg2rad(0.0), np.deg2rad(90.0))
-			self._setPWM(th_pwm)
-			
-			# espera terminar o periodo
-			elapsed_time = time.time() - start_time
-			time.sleep(np.max([0.0, dt-elapsed_time]))
-	
-	########################################
-	# seta PWM do motor
-	def _setPWM(self, pwm):
-		
-		# converte para graus
-		pwm = np.rad2deg(pwm + self.trim_throttle)
-		
-		# aplica calibracao devido a reducoes do eixo
-		pwm += ZERO_THROTTLE_ANGLE
-		
-		# envia comando
-		#self.pwm = np.clip(pwm, 0.0, 180.0)
-		self.pwm = np.clip(pwm, self.min_pwm_throttle, self.max_pwm_throttle)
-		self.kit.servo[SERVO_THROTTLE].angle = self.pwm
-		
-	########################################
-	# seta torque do motor em N.m
-	def setTorque(self, T, dt=0.03):
-		
-		# transforma torque para rad
-		with self.lock:
-			self.dth_pwm = GAIN_TORQUE*T
-			self.dt = dt
-	
-	########################################
-	# seta steer do veiculo (st in rad)
-	def setSteer(self, st):
-		
-		# direciona o ultrasom conforme o estercamento (em RAD)
-		if self.ultrasonic:
-			self.setPan(st)
-		else:
-			self.setPan(0.0)
-			
-		# converte para graus
-		st = np.rad2deg(st + self.trim_steer)
-		
-		# satura angulo de estercamento
-		trim_deg = np.rad2deg(self.trim_steer)
-		st = np.clip(st, -MAX_STERRING_ANGLE + trim_deg, MAX_STERRING_ANGLE + trim_deg)
-		
-		# aplica calibracao devido a reducoes do eixo
-		with self.lock:
-			self.st_pwm = GAIN_STERRING_ANGLE*st + ZERO_STERRING_ANGLE
-	
-	########################################
-	# angulo de pan do ultrasom
-	def setPan(self, ang):
-			
-		# converte para graus
-		ang = np.rad2deg(ang + self.trim_pan)
-		
-		# angulo centrado em zero
-		ang += 90.0        
-		
-		# envia comando
-		ang = np.clip(ang, 0.0, 180.0)
-		self.kit.servo[SERVO_ULTRASONIC].angle = ang
-		
-	########################################
 	# mode de marcha re
 	def _backward(self):
-		self.kit.servo[SERVO_THROTTLE].angle = 0.8*ZERO_THROTTLE_ANGLE
-		time.sleep(0.1)
-		self.kit.servo[SERVO_THROTTLE].angle = ZERO_THROTTLE_ANGLE
-		time.sleep(0.1)
-		self.kit.servo[SERVO_THROTTLE].angle = 0.8*ZERO_THROTTLE_ANGLE
-		time.sleep(0.1)
-		self.kit.servo[SERVO_THROTTLE].angle = ZERO_THROTTLE_ANGLE
+		time.sleep(0.5)
+		# da toquinos para tras
+		for _ in range(4):
+			self.kit.servo[SERVO_THROTTLE].angle = 0.5*ZERO_THROTTLE_ANGLE
+			time.sleep(0.1)
+			self.kit.servo[SERVO_THROTTLE].angle = ZERO_THROTTLE_ANGLE
+			time.sleep(0.1)
 	
 	########################################
-	# destrutor
+	# fecha comando dos servos
 	def close(self):
-		# termina de mover os servos e o esc
-		self.setSteer(0.0)
-		self.setTorque(-1.0)
-		time.sleep(1.0)
+		# para integracao de tracao
+		with self.lock:
+			self.dth_pwm = 0.0
+
+		# centraliza direcao
+		self.set_steer(0.0)
+
+		# sinaliza encerramento da thread
+		self.stop.set()
+
+		# espera thread terminar
+		if self.thread.is_alive():
+			self.thread.join()
+
+		# coloca ESC em neutro
+		self.th_pwm = 0.0
+		self._set_pwm(self.th_pwm)
 		
 ########################################
 # main teste
 ########################################
 if __name__ == "__main__":
 	
-	# cria servos
-	ser = Servos(ultrasonic=True, use_thread=True)
-	print('Servos ok...')
-	
-	# testa servos
-	t0 = time.time()
-	while (time.time() - t0) <= 10.0:
-		t = time.time() - t0
-		print(f"Tempo = {t:.2f} s", flush=True)
-		
-		# seta estercamento junto com ultrasom
-		ser.setSteer(np.deg2rad(MAX_STERRING_ANGLE)*np.sin(0.5*t))
-		# seta torque do motor
-		ser.setTorque(0.2*np.sin(0.5*t))
-		# espera
-		time.sleep(ser.dt)
-		
-	ser.close()
-		
 	# calibracao do ESC
 	#ser.kit.servo[SERVO_THROTTLE].angle = 90 #90 (neutro), 180 (maximo), 0 (minimo)
+	
+	# cria servos
+	ser = Servos(ultrasonic=True)
+	print('Servos ok...')
+	
+	try:
+		# testa servos
+		t0 = time.monotonic()
+		while (time.monotonic() - t0) <= 10.0:
+			t = time.monotonic() - t0
+			print(f"Tempo = {t:.2f} s", flush=True)
+			
+			# seta estercamento junto com ultrasom
+			ser.set_steer(np.deg2rad(MAX_STERRING_ANGLE)*np.sin(0.5*t))
+			# seta torque do motor
+			ser.set_torque(0.2*np.sin(0.5*t))
+			# espera
+			time.sleep(ser.dt)
+			
+	finally:
+		ser.close()
