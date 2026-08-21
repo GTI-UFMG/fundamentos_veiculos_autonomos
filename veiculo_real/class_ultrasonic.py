@@ -228,53 +228,84 @@ class Ultrasonic:
 		#Ensure cleanup is called when object is deleted
 		self.cleanup()
 
-################################################################################
+########################################################################
 # Teste rapido
+########################################################################
 if __name__ == '__main__':
-	
+
 	import matplotlib.pyplot as plt
 	plt.ion()
 	fig = plt.figure(figsize=(8, 4))
 
+	# parametros do teste
+	TEST_TIME = 30.0
+	PLOT_INTERVAL = 2.0
+	PLOT_WINDOW = 5.0
+
+	# dados
 	ts = []
 	dist = []
 	valids = []
-	m = 50
 
 	# cria o ultrasom
 	us = Ultrasonic()
 
-	# testa leitura
-	t0 = time.time()
-	while (time.time() - t0) <= 20.0:
-		
-		# le sensor e salva dados
-		distance, valid = us.get_distance()
-		dist.append(distance)
-		valids.append(valid)
-		ts.append(time.time() - t0)
-		
-		if len(dist) % 10 == 0:
-			plt.clf()
+	try:
+		t0 = time.monotonic()
+		last_plot = t0
 
-			# ultimas m amostras
-			t_plot = np.array(ts[-m:])
-			d_plot = np.array(dist[-m:])
-			v_plot = np.array(valids[-m:])
+		while (time.monotonic() - t0) <= TEST_TIME:
 
-			# pontos validos
-			plt.scatter(t_plot[v_plot], d_plot[v_plot], color='blue', label='Validos')
+			# tempo atual
+			now = time.monotonic()
+			t = now - t0
 
-			# pontos invalidos
-			plt.scatter(t_plot[~v_plot], d_plot[~v_plot], color='red', label='Invalidos')
+			# le sensor
+			distance, valid = us.get_distance()
 
-			plt.xlabel('Time [s]')
-			plt.ylabel('Distance [m]')
-			plt.ylim([us.min_range - 0.2, us.max_range + 0.2])
-			plt.legend()
-			plt.pause(0.1)
-		
-			print(f"Distance: {dist[-1]:.2f} [m]", flush=True)
-		
-	plt.ioff()
-	us.close()
+			# salva dados
+			ts.append(t)
+			dist.append(distance)
+			valids.append(valid)
+
+			# atualiza grafico a cada 5 segundos
+			if (now - last_plot) >= PLOT_INTERVAL:
+
+				# converte para arrays
+				t_array = np.array(ts)
+				d_array = np.array(dist)
+				v_array = np.array(valids)
+
+				# seleciona ultimos 10 segundos
+				mask = t_array >= (t - PLOT_WINDOW)
+
+				t_plot = t_array[mask]
+				d_plot = d_array[mask]
+				v_plot = v_array[mask]
+
+				# apaga
+				plt.clf()
+
+				# sinal continuo
+				plt.plot(t_plot, d_plot, 'b-', label='Distancia')
+
+				# destaca medidas invalidas
+				plt.scatter(t_plot[~v_plot], d_plot[~v_plot], color='red', label='Medida invalida', zorder=3)
+
+				plt.xlabel('Time [s]')
+				plt.ylabel('Distance [m]')
+
+				plt.ylim([us.min_range - 0.2, us.max_range + 0.2])
+
+				plt.grid()
+				plt.legend()
+				plt.show(block=False)
+				plt.pause(0.1)
+
+				last_plot = now
+
+			time.sleep(SAMPLE_TIME)
+
+	finally:
+		print('Terminou...')
+		us.close()
