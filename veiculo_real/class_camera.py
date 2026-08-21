@@ -13,6 +13,14 @@ os.environ["QT_QPA_PLATFORM"] = "xcb"  # forca backend X11
 import cv2
 from pathlib import Path
 
+#---------------
+# As vezes o OpenCV/PyTorch tenta usar todos os cores e o pico de consumo explode.
+# Limitar threads do PyTorch/OpenCV antes de importar:
+os.environ["OMP_NUM_THREADS"] = "2"
+os.environ["OPENBLAS_NUM_THREADS"] = "2"
+cv2.setNumThreads(2)
+#---------------
+
 ########################################
 # Globais
 ########################################
