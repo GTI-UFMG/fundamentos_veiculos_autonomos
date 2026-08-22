@@ -24,7 +24,7 @@ import class_imu
 CAR = {
 		'VELMAX'	: 3.0,				# m/s
 		'ACCELMAX'	: 1.0, 				# m/s^2
-		'STEERMAX'	: np.deg2rad(20.0),	# deg
+		'STEERMAX'	: np.deg2rad(20.0),	# rad
 		'MASS'		: 5.16,				# kg
 		'L'			: 0.36,				# distancia entre os eixos das rodas
 		'RW' 		: 0.08,				# raio da roda [m]
@@ -44,7 +44,7 @@ class Car:
 		self.parameters = parameters
 		
 		# inicializa sensores
-		self.initSensors()
+		self.init_sensors()
 		
 		# tempo
 		self.t = 0.0
@@ -91,7 +91,7 @@ class Car:
 		
 	########################################
 	# inicializa sensores e atuadores
-	def initSensors(self):
+	def init_sensors(self):
 		
 		# atuadores de estercamento, aceleracao e ultrasom/camera
 		self.atuador = class_servos.Servos(ultrasonic=self.parameters['ultrasonic_steering'])
@@ -123,48 +123,47 @@ class Car:
 
 	########################################
 	# comeca a missao
-	def startMission(self):
+	def start_mission(self):
 		
 		# desliga a emergencia
 		self.emergencia = False
 		
 		# tempo inicial
-		self.tinit = self.getTime()
+		self.tinit = self.get_time()
 		
 		# estados iniciais
-		self.getStates()
+		self.get_states()
 		
 		# comeca parado
-		self.setU(0.0)
-		self.setSteer(0.0)
+		self.set_u(0.0)
+		self.set_steer(0.0)
 		
 		# salva trajetoria
-		self.saveTraj()
+		self.save_traj()
 		
 		# aviso sonoro de inicio
-		for _ in range(3):
-			self.bz.beep(timer=0.2)
+		self.bz.beep([0.2] * 3)
 		time.sleep(1.0)
 		
 	########################################
 	# get states
-	def getStates(self):
+	def get_states(self):
 
 		# velocidade 
 		self.v_ant = self.v
-		self.v, self.w = self.getVel()
+		self.v, self.w = self.get_vel()
 
 		# aceleracao
-		self.a = self.getAccel()
+		self.a = self.get_accel()
 
 		# orientacao
-		self.th = self.getYaw()
+		self.th = self.get_yaw()
 		
 		# posicao
-		self.p = self.getPos()
+		self.p = self.get_pos()
 		
 		# tempo
-		self.t = self.getTime() - self.tinit
+		self.t = self.get_time() - self.tinit
 				
 		return self.p, self.v, self.a, self.th, self.w, self.t
 	
@@ -175,21 +174,21 @@ class Car:
 		t0 = self.t
 		
 		# espera o periodo de delta t
-		elapsed_time = self.getTime() - self.tinit - t0
+		elapsed_time = self.get_time() - self.tinit - t0
 		time.sleep(np.max([0.0, self.sample_rate - elapsed_time]))
 		
 		# condicoes iniciais
-		self.getStates()
+		self.get_states()
 		
 		# atualiza amostragem
 		self.dt = self.t - t0
 		
 		# salva trajetoria
-		self.saveTraj()
+		self.save_traj()
 		
 	########################################
 	# salva a trajetoria
-	def saveTraj(self):
+	def save_traj(self):
 		
 		# dados
 		data = {	't'     : self.t, 
@@ -211,19 +210,19 @@ class Car:
 			
 	########################################
 	# retorna tempo do sistema
-	def getTime(self):
+	def get_time(self):
 		return float(time.time())
 					
 	########################################
 	# retorna posicao do carro - sem GPS
-	def getPos(self):
+	def get_pos(self):
 		x = self.p[0] + self.v*np.cos(self.th)*self.dt
 		y = self.p[1] + self.v*np.sin(self.th)*self.dt
 		return np.array((x, y))			
 				
 	########################################
 	# retorna yaw - sem bussola
-	def getYaw(self):
+	def get_yaw(self):
 		yaw = self.th + self.w*self.dt
 		
 		while yaw < 0.0:
@@ -235,21 +234,26 @@ class Car:
 		
 	########################################
 	# retorna velocidades linear e angular
-	def getVel(self):
-		
+	def get_vel(self):
+
 		# le velocidade do encoder
-		v = self.odometer.getVel()
-		vf = self.v_filt.filter(v)
-		
-		# velocidade angular sem IMU, calculada artificialmente
-		w = (v/CAR['L'])*np.tan(self.st)
+		v, valid = self.odometer.get_vel()
+
+		# somente atualiza velocidade se a medida for valida
+		if valid:
+			vf = self.v_filt.filter(v)
+		else:
+			vf = self.v
+
+		# velocidade angular calculada pelo modelo cinematico
+		w = (vf / CAR['L']) * np.tan(self.st)
 		wf = self.w_filt.filter(w)
-		
-		return  vf, wf
+
+		return vf, wf
 	
 	########################################
 	# retorna aceleracao
-	def getAccel(self):
+	def get_accel(self):
 		
 		if self.dt == 0.0:
 			return 0.0
@@ -262,7 +266,7 @@ class Car:
 	
 	########################################
 	# seta referencia de controle
-	def setRef(self, vref):
+	def set_ref(self, vref):
 		# em caso de emergencia, pare
 		if self.emergencia:
 			self.vref = 0.0
@@ -275,22 +279,22 @@ class Car:
 			
 	########################################
 	# seta torque do veiculo
-	def setVel(self, vref):
+	def set_vel(self, vref):
 		
 		# ganhos
 		Kp = 0.4
 		Kd = 0.2
 		
 		# seta referencia
-		self.setRef(vref)
+		self.set_ref(vref)
 		
 		# controle de velocidade
 		u = Kp*(self.vref - self.v) + Kd*(-self.a)
-		self.setU(u)
+		self.set_u(u)
 	
 	########################################
 	# seta torque dos motores do veiculo
-	def setU(self, u):
+	def set_u(self, u):
 		
 		# em caso de emergencia, desacelere no maximo
 		if self.emergencia:
@@ -314,11 +318,11 @@ class Car:
 			T = 0.0
 		
 		# seta o torque
-		self.atuador.setTorque(T, dt=self.dt)
+		self.atuador.set_torque(T)
 
 	########################################
 	# seta steer do veiculo
-	def setSteer(self, st):
+	def set_steer(self, st):
 		# emergencia
 		if self.emergencia:
 			st = 0.0
@@ -327,25 +331,30 @@ class Car:
 		self.st = np.clip(st, -CAR['STEERMAX'], CAR['STEERMAX'])
 		
 		# atua no volante
-		self.atuador.setSteer(self.st)
+		self.atuador.set_steer(self.st)
 		
 	########################################
 	# get image data
-	def getImage(self, gray=False):
-		return self.cam.getImage(gray)
+	def get_image(self, gray=False):
+		return self.cam.get_image(gray)
 		
 	########################################
 	# get ultrasonic distance
-	def getDistance(self, max_dist=4.0, d_min=0.4):
+	def get_distance(self, max_dist=4.0, d_min=0.3):
 		
 		# captura a distancia
-		d = np.min([self.us.getDistance(), max_dist])
-		
+		d, valid = self.us.get_distance()
+		d = np.min([d, max_dist])
+
+		# toca o buzzer se muito proximo ou invalido
 		if self.parameters['us_buzzer']:
-			if d <= d_min:
-				self.bz.beep(timer=d/3.0, block=False)
+			if not valid:
+				self.bz.beep(0.1)
+			elif d <= d_min:
+				self.bz.beep(d/3.0)
+				
 		# retorna distancia
-		return d 
+		return d , valid
 	
 	########################################
 	# save traj
@@ -363,14 +372,14 @@ class Car:
 	
 	########################################
 	# termina a missao
-	def stopMission(self):
+	def stop_mission(self):
 		
 		# aperta a emergencia
 		self.emergencia = True
 		
 		# termina parado
-		self.setU(-CAR['ACCELMAX'])
-		self.setSteer(0.0)
+		self.set_u(-CAR['ACCELMAX'])
+		self.set_steer(0.0)
 		
 		# espera ate parar
 		while self.v > 0.1:
@@ -385,7 +394,7 @@ class Car:
 	# termina a classe
 	def close(self):
 		# para o carrinho
-		self.stopMission()
+		self.stop_mission()
 		
 		# fecha tudo
 		self.bz.close()
@@ -410,12 +419,12 @@ if __name__ == "__main__":
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# usar camera
 				'ultrasonic_steering' 	: True,		# mover ultrasom com estercamento
-				'us_buzzer'				: False,		# aviso sonoro para objetos proximos
+				'us_buzzer'				: True,	# aviso sonoro para objetos proximos
 				}
 	
 	# cria comunicacao com o carrinho
 	car = Car(parameters)
-	car.startMission()
+	car.start_mission()
 	
 	# testa leitura
 	t0 = time.time()
@@ -426,17 +435,17 @@ if __name__ == "__main__":
 		car.step()
 		
 		# le ultrasom
-		dist = car.getDistance()
-		print(f"Distance: {dist:.2f} [m]")
-		
+		dist, valid = car.get_distance()
 		# seta torque do motor
-		if dist > 0.10:
-			car.setVel(0.7)
+		if valid and dist > 0.10:
+			car.set_vel(0.7)
 		else:
-			car.setVel(0.0)
+			car.set_vel(0.0)
+		#
+		print(f"Distance: {dist:.2f} [m]")
 			
 		# seta estercamento junto com ultrasom
-		car.setSteer(np.deg2rad(20.0)*np.sin(0.5*t))
+		car.set_steer(np.deg2rad(20.0)*np.sin(0.5*t))
 
 	# salva os dados coletados
 	if parameters['save']:
