@@ -11,6 +11,7 @@ from adafruit_servokit import ServoKit
 import time
 import numpy as np
 import threading
+from enum import Enum
 import class_filter
 
 # Canais de entradas dos servos
@@ -23,8 +24,14 @@ MAX_STERRING_ANGLE  = np.deg2rad(20.0)
 GAIN_STERRING_ANGLE = np.deg2rad(50.0)/MAX_STERRING_ANGLE
 
 ZERO_THROTTLE_ANGLE = np.deg2rad(95.0)
-GAIN_TORQUE = 0.4 # [rad/s] por unidade de pseudo-torque
+GAIN_TORQUE_FORWARD = 0.4 # [rad/s] por unidade de pseudo-torque
+GAIN_TORQUE_REVERSE = 1.2 # [rad/s] por unidade de pseudo-torque
+GEAR_SHIFTING_TIME  = 5.0  # tempo para a troca de marcha [s]
 
+class Gear(Enum):
+    FORWARD = "forward"
+    REVERSE = "reverse"
+    
 ########################################
 # Adafruit 16-channel servo driver
 ########################################
@@ -35,6 +42,7 @@ class Servos:
 		
 		# lock de secao critica
 		self.lock = threading.Lock()
+		self.throttle_lock = threading.Lock()
 		
 		# Set channels to the number of servo channels on your kit.
 		# 8 for FeatherWing, 16 for Shield/HAT/Bonnet.
@@ -45,15 +53,26 @@ class Servos:
 			raise ValueError("dt deve ser maior que zero.")
 		self.dt = float(dt)
 		
-		# define se o ultrasom vai se mover junto com o estercamento
-		self.ultrasonic = ultrasonic
+		# comeca indo para frente
+		self.gear = Gear.FORWARD
+		self.gain_torque = GAIN_TORQUE_FORWARD
 		
 		# ajuste fino dos servos
 		self.set_trim()
 		
-		# derivada do pwm
-		self.dth_pwm = 0.0
+		#########################
+		# estercamento
+		#########################
+		# define se o ultrasom vai se mover junto com o estercamento
+		self.ultrasonic = ultrasonic
+		# cria filtro de estercamento
+		self.st_filt = class_filter.MovingAverage(n=10, initial=steering)
+		# inicializa o estercamento
+		self.set_steer(steering)
 		
+		#########################
+		# throttle
+		#########################
 		# definir limite pratico de velocidade do carro
 		self.velmax = np.clip(abs(float(velmax)), 0.3, 1.5)
 		#v =  0.092294 PWM - 8.9370 (curva interpolada com experimentos (PWM em deg))
@@ -62,11 +81,8 @@ class Servos:
 		self.min_pwm_throttle = (2.0 * ZERO_THROTTLE_ANGLE - self.max_pwm_throttle)
 		self.max_throttle = (self.max_pwm_throttle - ZERO_THROTTLE_ANGLE)
 		
-		# cria filtro de estercamento
-		self.st_filt = class_filter.MovingAverage(n=10, initial=steering)
-		# inicializa o estercamento
-		self.set_steer(steering)
-		
+		# derivada do pwm
+		self.dth_pwm = 0.0
 		# inicializa tracao
 		self.th_pwm = np.clip(float(throttle), 0.0, self.max_throttle)
 		self._set_pwm(self.th_pwm)
@@ -78,6 +94,55 @@ class Servos:
 		self.thread = threading.Thread(target=self.actuator, daemon=True)
 		# dispara thread
 		self.thread.start()
+	
+	########################################
+	# procedimento de marcha re (demora GEAR_SHIFTING_TIME segundos)
+	def set_reverse(self):
+		
+		# ja esta na marcha certo
+		with self.lock:
+			if self.gear == Gear.REVERSE:
+				return
+		
+		# impede actuator de escrever no throttle
+		with self.throttle_lock:
+			with self.lock:
+				self.th_pwm = 0.0
+				self.dth_pwm = 0.0
+			
+			# espera o carro parar
+			self._set_pwm(0.0)
+			time.sleep(GEAR_SHIFTING_TIME)
+			
+			# passa a marcha ré
+			self._backward()
+			
+			with self.lock:
+				self.gear = Gear.REVERSE
+				self.gain_torque = GAIN_TORQUE_REVERSE
+	
+	########################################
+	# procedimento normal (demora GEAR_SHIFTING_TIME segundos)
+	def set_forward(self):
+		
+		# ja esta na marcha certo
+		with self.lock:
+			if self.gear == Gear.FORWARD:
+				return
+		
+		# impede actuator de escrever no throttle
+		with self.throttle_lock:
+			with self.lock:
+				self.th_pwm = 0.0
+				self.dth_pwm = 0.0
+			
+			# espera o carro parar
+			self._set_pwm(0.0)
+			time.sleep(GEAR_SHIFTING_TIME)
+			
+			with self.lock:
+				self.gear = Gear.FORWARD
+				self.gain_torque = GAIN_TORQUE_FORWARD
 		
 	########################################
 	# essa eh a thread que garante a atuacao suave e periodica com self.dt
@@ -90,21 +155,34 @@ class Servos:
 			start_time = time.monotonic()
 			
 			with self.lock:
-				# envia comando de estercamento
-				self._set_servo(SERVO_STEERING, self.st_pwm)
+				st_pwm = self.st_pwm
+				pan_pwm = self.pan_pwm
+				
+			# envia comando de estercamento
+			self._set_servo(SERVO_STEERING, st_pwm)
 			
-				# envia comando de pan da camera/ultrasom
-				self._set_servo(SERVO_ULTRASONIC, self.pan_pwm)
+			# envia comando de pan da camera/ultrasom
+			self._set_servo(SERVO_ULTRASONIC, pan_pwm)
 			
-				# envia comando de tracao (integra pwm)
-				self.th_pwm += self.dth_pwm * self.dt
-			
-				# limita tracao com anti-windup
-				self.th_pwm = np.clip(self.th_pwm, 0.0, self.max_throttle)
+			with self.lock:
+				if self.gear == Gear.FORWARD:
+					# envia comando de tracao (integra pwm)
+					self.th_pwm += self.dth_pwm * self.dt
+					# limita tracao com anti-windup
+					self.th_pwm = np.clip(self.th_pwm, 0.0, self.max_throttle)
+				#
+				elif self.gear == Gear.REVERSE:
+					# envia comando de tracao (integra pwm)
+					self.th_pwm -= self.dth_pwm * self.dt
+					# limita tracao com anti-windup
+					self.th_pwm = np.clip(self.th_pwm, -ZERO_THROTTLE_ANGLE, 0.0)
+				
+				# pwm final	
 				th_pwm = self.th_pwm
 			
 			# seta commando
-			self._set_pwm(th_pwm)
+			with self.throttle_lock:
+				self._set_pwm(th_pwm)
 			
 			# espera terminar o periodo
 			elapsed_time = time.monotonic() - start_time
@@ -118,7 +196,12 @@ class Servos:
 		pwm += self.trim_throttle + ZERO_THROTTLE_ANGLE
 		
 		# envia comando
-		self.pwm = np.clip(pwm, self.min_pwm_throttle, self.max_pwm_throttle)
+		if self.gear == Gear.FORWARD:
+			self.pwm = np.clip(pwm, self.min_pwm_throttle, self.max_pwm_throttle)
+		elif self.gear == Gear.REVERSE:
+			self.pwm = np.clip(pwm, np.deg2rad(0), ZERO_THROTTLE_ANGLE)
+			
+		# seta o pwm
 		self._set_servo(SERVO_THROTTLE, self.pwm)
 		
 	########################################
@@ -128,7 +211,7 @@ class Servos:
 		
 		# transforma torque para rad
 		with self.lock:
-			self.dth_pwm = GAIN_TORQUE*T
+			self.dth_pwm = self.gain_torque * T
 	
 	########################################
 	# seta steer do veiculo (st in rad)		
@@ -226,7 +309,42 @@ if __name__ == "__main__":
 	print('Servos ok...')
 	
 	try:
-		# testa servos
+		print("###################################")
+		print("# Frente")
+		print("###################################")
+		ser.set_forward()
+		t0 = time.monotonic()
+		while (time.monotonic() - t0) <= 10.0:
+			t = time.monotonic() - t0
+			print(f"Tempo = {t:.2f} s", flush=True)
+			
+			# seta estercamento junto com ultrasom
+			ser.set_steer(MAX_STERRING_ANGLE*np.sin(0.5*t))
+			# seta torque do motor
+			ser.set_torque(0.2*np.sin(0.5*t))
+			# espera
+			time.sleep(ser.dt)
+		
+		print("###################################")
+		print("# Re")
+		print("###################################")
+		ser.set_reverse()
+		t0 = time.monotonic()
+		while (time.monotonic() - t0) <= 10.0:
+			t = time.monotonic() - t0
+			print(f"Tempo = {t:.2f} s", flush=True)
+			
+			# seta estercamento junto com ultrasom
+			ser.set_steer(MAX_STERRING_ANGLE*np.sin(0.5*t))
+			# seta torque do motor
+			ser.set_torque(0.2*np.sin(0.5*t))
+			# espera
+			time.sleep(ser.dt)
+			
+		print("###################################")
+		print("# Frente")
+		print("###################################")
+		ser.set_forward()
 		t0 = time.monotonic()
 		while (time.monotonic() - t0) <= 10.0:
 			t = time.monotonic() - t0
