@@ -143,7 +143,13 @@ class Servos:
 			with self.lock:
 				self.gear = Gear.FORWARD
 				self.gain_torque = GAIN_TORQUE_FORWARD
-		
+	
+	########################################
+	# verifica qual a marcha
+	def get_gear(self):
+		with self.lock:
+			return self.gear
+			
 	########################################
 	# essa eh a thread que garante a atuacao suave e periodica com self.dt
 	def actuator(self):

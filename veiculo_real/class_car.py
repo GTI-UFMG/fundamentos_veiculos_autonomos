@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 ########################################
 # Disciplina: Topicos em Engenharia de Controle e Automacao IV (ENG075): 
-# Fundamentos de Veiculos Autonomos - 2025/2
+# Fundamentos de Veiculos Autonomos - 2026/2
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
 # Cursos: Engenharia de Controle e Automacao
 # DELT - Escola de Engenharia
@@ -22,7 +22,7 @@ import class_imu
 ########################################
 # parametros do carro
 CAR = {
-		'VELMAX'	: 3.0,				# m/s
+		'VELMAX'	: 1.5,				# m/s
 		'ACCELMAX'	: 1.0, 				# m/s^2
 		'STEERMAX'	: np.deg2rad(20.0),	# rad
 		'MASS'		: 5.16,				# kg
@@ -32,6 +32,20 @@ CAR = {
 		'GRAV'   	: 9.81, 			# gravidade [m/s^2]
 		'PERIOD'	: 50.0,				# periodo de amostragem dos sensores
 	}
+	
+MACS_CARS = {
+	'verde':    '2c:cf:67:1c:29:4a',
+	'vermelho': 'd8:3a:dd:f1:8a:4f',
+	'roxo':     '2c:cf:67:1c:29:07'
+}
+
+COLORS = {
+	'verde':    '\033[32m',
+	'vermelho': '\033[31m',
+	'roxo':     '\033[35m'
+}
+
+RESET = '\033[0m'
 
 ########################################
 # Carrinho
@@ -43,6 +57,8 @@ class Car:
 		
 		self.parameters = parameters
 		
+		# detecta carrinho pronto
+		self.color = self.get_car_color()
 		# inicializa sensores
 		self.init_sensors()
 		
@@ -71,6 +87,9 @@ class Car:
 		# botao de emergencia
 		self.emergencia = True
 		
+		# marcha atual
+		self.gear = self.atuador.get_gear()
+		
 		# filtros dos sinais
 		self.v_filt    = class_filter.MovingAverage(n=20)
 		self.a_filt    = class_filter.MovingAverage(n=30)
@@ -85,41 +104,65 @@ class Car:
 			# Crie a pasta se ela nao existir
 			os.makedirs(self.logfile, exist_ok=True)
 		
-		print('##############################')
-		print("\033[32mCarro pronto!\033[0m", flush=True)
-		print('##############################')
-		
 	########################################
 	# inicializa sensores e atuadores
 	def init_sensors(self):
 		
-		# atuadores de estercamento, aceleracao e ultrasom/camera
-		self.atuador = class_servos.Servos(ultrasonic=self.parameters['ultrasonic_steering'])
-		print("\033[32mServos ok...\033[0m", flush=True)
+		# atuadores de estercamento, aceleracao e ultrasom/camera	
+		try:
+			self.atuador = class_servos.Servos(ultrasonic=self.parameters['ultrasonic_steering'])
+		except Exception as e:
+			print(f"\033[31mErro nos servos: {e}\033[0m", flush=True)
+			raise
 		
 		# odometro da roda
-		self.odometer = class_encoder.Encoder()
-		print("\033[32mOdometria ok...\033[0m", flush=True)
+		try:
+			self.odometer = class_encoder.Encoder()
+		except Exception as e:
+			print(f"\033[31mErro no velocimetro: {e}\033[0m", flush=True)
+			raise
 		
 		# imu
-		self.imu = class_imu.IMU()
-		print("\033[32mIMU ok...\033[0m", flush=True)
-
-		# camera
-		if self.parameters['camera']:
-			import class_camera
-			self.cam = class_camera.Camera()
-			print("\033[32mCamera ok...\033[0m", flush=True)
-		else:
-			print("\033[31mNot using camera...\033[0m", flush=True)
-			
+		try:
+			self.imu = class_imu.IMU()
+		except Exception as e:
+			print(f"\033[31mErro na IMU: {e}\033[0m", flush=True)
+			raise
+		
 		# ultrasom
-		self.us = class_ultrasonic.Ultrasonic()
-		print("\033[32mUltrasom ok...\033[0m", flush=True)
+		try:
+			self.us = class_ultrasonic.Ultrasonic()
+		except Exception as e:
+			print(f"\033[31mErro no ultrasom: {e}\033[0m", flush=True)
+			raise
 		
 		# buzzer de sinalizacao
-		self.bz = class_buzzer.Buzzer()
-		print("\033[32mBuzzer ok...\033[0m", flush=True)
+		try:
+			self.bz = class_buzzer.Buzzer()
+		except Exception as e:
+			print(f"\033[31mErro no buzzer: {e}\033[0m", flush=True)
+			raise
+		
+		# camera
+		if self.parameters['camera']:
+			try:
+				import class_camera
+				self.cam = class_camera.Camera()
+			except Exception as e:
+				print(f"\033[31mErro na camera: {e}\033[0m", flush=True)
+				raise
+		else:
+			print("\033[33mCamera desativada.\033[0m", flush=True)
+			
+		# carro pronto
+		if self.color is not None:
+			print(f"{COLORS[self.color]}##############################{RESET}", flush=True)
+			print(f"{COLORS[self.color]}Carro {self.color.upper()} pronto!{RESET}", flush=True)
+			print(f"{COLORS[self.color]}##############################{RESET}", flush=True)
+		else:
+			print("\033[33m##############################\033[0m", flush=True)
+			print("\033[33mCarro desconhecido pronto!\033[0m", flush=True)
+			print("\033[33m##############################\033[0m", flush=True)
 
 	########################################
 	# comeca a missao
@@ -182,6 +225,10 @@ class Car:
 		
 		# atualiza amostragem
 		self.dt = self.t - t0
+		
+		# se esta dando re, avise
+		if self.gear == class_servos.Gear.REVERSE:
+			self.bz.beep(0.3, silence=0.5)
 		
 		# salva trajetoria
 		self.save_traj()
@@ -270,10 +317,19 @@ class Car:
 		# em caso de emergencia, pare
 		if self.emergencia:
 			self.vref = 0.0
-		else:		
-			# referencia filtrada de velocidade
-			self.vref = self.vref_filt.filter(vref)
-			self.vref = np.clip(self.vref, 0.0, CAR['VELMAX'])
+			return self.vref
+			
+		# referencia filtrada de velocidade
+		self.vref = self.vref_filt.filter(vref)
+		self.vref = np.clip(self.vref, -CAR['VELMAX'], CAR['VELMAX'])
+		
+		# se eh para dar re e estou indo para frente
+		if (self.vref < 0.0) and (self.gear == class_servos.Gear.FORWARD):
+			self.set_reverse()
+		
+		# se eh para ir para frente e estou dando re
+		elif (self.vref > 0.0) and (self.gear == class_servos.Gear.REVERSE):
+			self.set_forward()
 			
 		return self.vref
 			
@@ -284,12 +340,19 @@ class Car:
 		# ganhos
 		Kp = 0.4
 		Kd = 0.2
-		
-		# seta referencia
+
+		# define referencia e marcha
 		self.set_ref(vref)
-		
-		# controle de velocidade
-		u = Kp*(self.vref - self.v) + Kd*(-self.a)
+
+		# controla magnitude da velocidade
+		vref_abs = abs(self.vref)
+		v_abs = abs(self.v)
+
+		# aceleracao da magnitude
+		a_abs = np.sign(self.v) * self.a
+
+		# controle PD
+		u = Kp*(vref_abs - v_abs) - Kd*a_abs
 		self.set_u(u)
 	
 	########################################
@@ -304,7 +367,7 @@ class Car:
 		self.u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
 		# medida de seguranca
-		if self.v > CAR['VELMAX']:
+		if np.abs(self.v) > CAR['VELMAX']:
 			self.u = 0.0
 			
 		# controlador linearizante
@@ -313,13 +376,21 @@ class Car:
 		# torque de referencia
 		T = CAR['RW']*np.sum(F)
 		
-		# impede que o carro se movimente para tras
-		if (self.v < 0.1) and (u < 0.0):
-			T = 0.0
-		
 		# seta o torque
 		self.atuador.set_torque(T)
 
+	########################################
+	# coloca re
+	def set_reverse(self):
+		self.atuador.set_reverse()
+		self.gear = self.atuador.get_gear()
+		
+	########################################
+	# vai pra frente
+	def set_forward(self):
+		self.atuador.set_forward()
+		self.gear = self.atuador.get_gear()
+		
 	########################################
 	# seta steer do veiculo
 	def set_steer(self, st):
@@ -382,13 +453,32 @@ class Car:
 		self.set_steer(0.0)
 		
 		# espera ate parar
-		while self.v > 0.1:
+		while abs(self.v) > 0.1:
 			self.step()
 			time.sleep(0.1)
 		
 		# sinaliza fim
 		time.sleep(1.0)
 		self.bz.victory_tune()
+		
+	########################################
+	# qual eh o carrinho?
+	def get_car_color(self):
+
+		# procura os MACs das interfaces de rede
+		for interface in os.listdir('/sys/class/net'):
+			path = f'/sys/class/net/{interface}/address'
+			try:
+				with open(path, 'r') as f:
+					mac = f.read().strip().lower()
+			except OSError:
+				continue
+			# procura o MAC conhecido
+			for color, known_mac in MACS_CARS.items():
+				if mac == known_mac.lower():
+					return color
+		
+		return None
 		
 	########################################
 	# termina a classe
@@ -405,7 +495,15 @@ class Car:
 		if self.parameters['camera']:
 			self.cam.close()
 			
-		print ("\033[32mMissao terminada!\033[0m")
+		# acabou
+		if self.color is not None:
+			print(f"{COLORS[self.color]}##############################{RESET}", flush=True)
+			print(f"{COLORS[self.color]}Missao terminada!{RESET}", flush=True)
+			print(f"{COLORS[self.color]}##############################{RESET}", flush=True)
+		else:
+			print("\033[33m##############################\033[0m", flush=True)
+			print("\033[33mMissao terminada!\033[0m", flush=True)
+			print("\033[33m##############################\033[0m", flush=True)
 		
 ########################################
 # main teste
@@ -414,7 +512,7 @@ if __name__ == "__main__":
 	
 	# Globais
 	parameters = {	
-				'ts'					: 15.0,		# tempo da execucao
+				'ts'					: 30.0,		# tempo da execucao
 				'save'					: False,	# salvar trajetoria
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# usar camera
@@ -424,31 +522,41 @@ if __name__ == "__main__":
 	
 	# cria comunicacao com o carrinho
 	car = Car(parameters)
-	car.start_mission()
 	
-	# testa leitura
-	t0 = time.time()
-	while (time.time() - t0) <= parameters['ts']:
-		t = time.time() - t0
+	try:
+		car.start_mission()
 		
-		# le sensores
-		car.step()
-		
-		# le ultrasom
-		dist, valid = car.get_distance()
-		# seta torque do motor
-		if valid and dist > 0.10:
-			car.set_vel(0.7)
-		else:
-			car.set_vel(0.0)
-		#
-		print(f"Distance: {dist:.2f} [m]")
+		# testa leitura
+		t0 = time.time()
+		while (time.time() - t0) <= parameters['ts']:
+			t = time.time() - t0
 			
-		# seta estercamento junto com ultrasom
-		car.set_steer(np.deg2rad(20.0)*np.sin(0.5*t))
+			# le sensores
+			car.step()
+			
+			# le ultrasom
+			dist, valid = car.get_distance()
+			# seta torque do motor
+			if valid and dist > 0.10:
+				if t < parameters['ts']/2:
+					car.set_vel(0.7)
+				else:
+					car.set_vel(-0.7)
+			else:
+				car.set_vel(0.0)
+			#
+			print(
+				f"Vel: {car.v:+.2f} m/s | "
+				f"Ref: {car.vref:+.2f} m/s | "
+				f"Marcha: {car.gear.value}"
+			)
+				
+			# seta estercamento junto com ultrasom
+			car.set_steer(np.deg2rad(20.0)*np.sin(0.5*t))
 
-	# salva os dados coletados
-	if parameters['save']:
-		car.save()
+		# salva os dados coletados
+		if parameters['save']:
+			car.save()
 		
-	car.close()
+	finally:
+		car.close()

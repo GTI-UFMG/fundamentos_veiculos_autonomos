@@ -33,7 +33,7 @@ class Encoder:
 		port = self.find_arduino()
 		if not port:
 			raise RuntimeError("Encoder (arduino nano) nao encontrado!")
-		print("\033[32mEncoder conectado em: %s\033[0m" % port)
+		#print("\033[32mEncoder conectado em: %s\033[0m" % port)
 		
 		# abrindo porta serial
 		self.ser = serial.Serial(port, BAUDRATE, timeout=TIMEOUT)

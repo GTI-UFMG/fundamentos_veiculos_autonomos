@@ -99,7 +99,7 @@ class Buzzer:
 	########################################
 	# executa os beeps
 	########################################		
-	def _beep_pattern(self, durations):
+	def _beep_pattern(self, durations, silence=0.1):
 		try:
 			for duration in durations:
 				# on
@@ -107,14 +107,14 @@ class Buzzer:
 				time.sleep(duration)
 				# off
 				self._set_buzzer(False)
-				time.sleep(0.1)
+				time.sleep(silence)
 		finally:
 			self._set_buzzer(False)
 	
 	########################################
 	# dispara umou mais beeps
 	########################################	
-	def beep(self, durations=0.1):
+	def beep(self, durations=0.1, silence=0.1):
 
 		# se esta tocando, ignora
 		if self.closed:
@@ -129,7 +129,7 @@ class Buzzer:
 			if self.thread is not None and self.thread.is_alive():
 				return False
 
-			self.thread = threading.Thread(target=self._beep_pattern, args=(durations,), daemon=True)
+			self.thread = threading.Thread(target=self._beep_pattern, args=(durations, silence,), daemon=True)
 			self.thread.start()
 
 		return True
