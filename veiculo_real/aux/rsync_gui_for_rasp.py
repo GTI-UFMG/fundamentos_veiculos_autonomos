@@ -10,6 +10,8 @@ import subprocess
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # =========================
 # Configurações (ajuste aqui)
@@ -81,6 +83,8 @@ class RsyncGUI(tk.Tk):
 		super().__init__()
 		self.title("Gerenciador de Raspberries (envio e comandos)")
 		self.geometry("950x640")
+		#self.attributes("-fullscreen", True)
+		#self.bind("<Escape>", lambda event: self.attributes("-fullscreen", False))
 		self.devices = {}
 		self.selected_files = []
 		self._build_ui()
@@ -88,6 +92,16 @@ class RsyncGUI(tk.Tk):
 		if DEFAULT_PASS:
 			self.pass_entry.insert(0, DEFAULT_PASS)
 		self.refresh_ips()
+		
+		self.telemetry = {}
+		
+		# aumenta fontes
+		style = ttk.Style()
+		style.configure(".", font=("Arial", 14))
+		style.configure("TButton", font=("Arial", 14))
+		style.configure("TLabel", font=("Arial", 14))
+		style.configure("TCheckbutton", font=("Arial", 14))
+		style.configure("TNotebook.Tab", font=("Arial", 14, "bold"), padding=[12, 8])
 
 	# ----------------------------
 	def _build_ui(self):
@@ -190,10 +204,30 @@ class RsyncGUI(tk.Tk):
 		cmds_frame.pack(fill="x", padx=10, pady=4)
 		ttk.Label(cmds_frame, text="Comandos (1 por linha):").pack(anchor="w")
 		self.cmd_text = scrolledtext.ScrolledText(cmds_frame, height=6)
-		self.cmd_text.insert("end", "pkill python3\npython3 main.py\n")
+		self.cmd_text.insert(
+							"end",
+							'pkill -f "/home/alunos/Desktop/backup_FVA/main.py"\n'
+							'python3 main.py\n'
+							)
 		self.cmd_text.pack(fill="x", pady=4)
 
 		ttk.Button(parent, text="Executar nos selecionados", command=self.run_cmds_on_selected).pack(pady=6)
+
+		# grafico de telemetria
+		self.fig = Figure(figsize=(8, 3), dpi=100)
+		self.ax = self.fig.add_subplot(111)
+
+		self.ax.set_xlabel("Tempo [s]")
+		self.ax.set_ylabel("Velocidade [m/s]")
+		self.ax.grid(True)
+
+		self.canvas = FigureCanvasTkAgg(self.fig, master=parent)
+		self.canvas.get_tk_widget().pack(
+			fill="both",
+			expand=True,
+			padx=10,
+			pady=6
+		)
 
 		self.cmd_log = scrolledtext.ScrolledText(parent, height=16)
 		self.cmd_log.pack(fill="both", expand=True, padx=10, pady=6)
@@ -376,6 +410,10 @@ class RsyncGUI(tk.Tk):
 		if not cmds:
 			messagebox.showinfo("Nenhum comando", "Digite ao menos um comando.")
 			return
+			
+		self.telemetry = {}
+		self.after(0, self.update_plot)
+		
 		threading.Thread(target=self._run_remote_cmds, args=(targets, cmds), daemon=True).start()
 
 	def _run_remote_cmds(self, targets, cmds):
@@ -417,16 +455,91 @@ class RsyncGUI(tk.Tk):
 
 				self.cmdlog_write(f"$ {wrapped}")
 				try:
-					proc = subprocess.run(full_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+					'''proc = subprocess.run(full_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 					out = (proc.stdout or "").strip()
 					if out:
-						self.cmdlog_write(out)
+						self.cmdlog_write(out)'''
+						
+					proc = subprocess.Popen(
+						full_cmd,
+						stdout=subprocess.PIPE,
+						stderr=subprocess.STDOUT,
+						text=True,
+						bufsize=1
+					)
+
+					'''for line in proc.stdout:
+						line = line.rstrip()
+
+						if line:
+							self.cmdlog_write(f"[{name.upper()}] {line}")'''
+					for line in proc.stdout:
+						line = line.rstrip()
+
+						if not line:
+							continue
+
+						if line.startswith("DATA,"):
+							try:
+								_, t, v, vref = line.split(",")
+
+								if name not in self.telemetry:
+									self.telemetry[name] = {
+										"t": [],
+										"v": [],
+										"vref": []
+									}
+
+								self.telemetry[name]["t"].append(float(t))
+								self.telemetry[name]["v"].append(float(v))
+								self.telemetry[name]["vref"].append(float(vref))
+								self.after(0, self.update_plot)
+
+							except ValueError:
+								self.cmdlog_write(
+									f"[{name.upper()}] Telemetria invalida: {line}"
+								)
+
+						else:
+							self.cmdlog_write(f"[{name.upper()}] {line}")
+
+					proc.wait()
+					
 					if proc.returncode != 0:
 						self.cmdlog_write(f"⚠️ Retorno {proc.returncode} para comando: {raw_cmd}")
 				except Exception as e:
 					self.cmdlog_write(f"❌ Erro: {e}")
 			self.cmdlog_write(f"✅ Finalizado em {name.upper()}")
 
+	# =========================
+	def update_plot(self):
+
+		if not self.telemetry:
+			return
+
+		self.ax.clear()
+
+		for name, data in self.telemetry.items():
+			self.ax.plot(
+				data["t"],
+				data["v"],
+				label=f"{name.upper()} - v"
+			)
+
+			self.ax.plot(
+				data["t"],
+				data["vref"],
+				"--",
+				label=f"{name.upper()} - vref"
+			)
+
+		self.ax.set_xlabel("Tempo [s]")
+		self.ax.set_ylabel("Velocidade [m/s]")
+		self.ax.grid(True)
+		self.ax.legend()
+
+		self.canvas.draw_idle()
+	
 # =========================
 # Execução
 # =========================

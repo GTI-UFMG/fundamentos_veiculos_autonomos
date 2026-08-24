@@ -40,6 +40,8 @@ def control_func():
 			car.set_vel(0.0)
 		else:
 			car.set_vel(MAIN_VEL)
+			
+		print(f"DATA,{car.t:.3f},{car.v:.3f},{car.vref:.3f}", flush=True)
 		
 ########################################
 # thread de visao
