@@ -91,9 +91,9 @@ class Car:
 		self.gear = self.atuador.get_gear()
 		
 		# filtros dos sinais
-		self.v_filt    = class_filter.MovingAverage(n=20)
+		self.v_filt    = class_filter.MovingAverage(n=30)
 		self.a_filt    = class_filter.MovingAverage(n=30)
-		self.vref_filt = class_filter.MovingAverage(n=80)
+		self.vref_filt = class_filter.MovingAverage(n=100)
 		self.w_filt    = class_filter.MovingAverage(n=20)
 		
 		# logs de salvamento
