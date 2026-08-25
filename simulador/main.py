@@ -40,7 +40,7 @@ def control_func(car):
 def vision_func(car):
 		
 	# pega imagem
-	image = car.get_image()
+	image = car.get_image(gray=False)
 	
 	# ultrasom
 	dist, _ = car.get_distance()
@@ -79,7 +79,7 @@ if __name__ == "__main__":
 			# plota	
 			plt.subplot(211)
 			plt.cla()
-			plt.gca().imshow(image)
+			plt.gca().imshow(image, cmap='gray')
 			plt.title('t = %.1f' % car.t)
 			
 			plt.subplot(212)

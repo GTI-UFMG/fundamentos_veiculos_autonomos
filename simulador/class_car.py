@@ -423,20 +423,27 @@ class Car:
 	# seta orientacao da camera
 	def set_pan_tilt(self, pan=np.deg2rad(0.0), tilt=np.deg2rad(-35.0)):
 		return
-			
+	
 	########################################
 	# get image data
 	def get_image(self, gray=False):
-			
+		
 		while True:
 			image, resolution = self.sim.getVisionSensorImg(self.cam)
 			if image != -1:
 				break
-		# trata imagem		
+		
+		# trata imagem
 		img = np.frombuffer(image, dtype=np.uint8)
-		img.resize([resolution[1], resolution[0],3])
+		img = img.reshape([resolution[1], resolution[0], 3])
+
 		# corrige orientacao da imagem do CoppeliaSim
 		img = np.flipud(img)
+
+		# converte para tons de cinza, se solicitado
+		if gray:
+			img = np.mean(img, axis=2).astype(np.uint8)
+
 		return img
 		
 	########################################
@@ -450,20 +457,51 @@ class Car:
 			dist = max_dist
 		valid = True # sempre eh valido
 		return dist, valid
-		
+	
 	########################################
-	# save traj
+	# save traj em csv
 	def save(self):
-		filename = self.logfile + 'car.npz'
-		data = [traj for traj in self.traj]
-		np.savez(filename, data=data)
+		filename = self.logfile + 'car.csv'
+
+		data = np.array([
+			[
+				traj['t'],
+				traj['p'][0],
+				traj['p'][1],
+				traj['v'],
+				traj['a'],
+				traj['vref'],
+				traj['th'],
+				traj['w'],
+				traj['u']
+			]
+			for traj in self.traj
+		])
+
+		header = 't,x,y,v,a,vref,th,w,u'
+
+		np.savetxt(filename, data, delimiter=',', header=header, comments='')
 
 	########################################
 	# load traj
 	def load(self):
-		filename = self.logfile + 'car.npz'
-		data = np.load(filename, allow_pickle=True)
-		self.traj = data['data']
+		filename = self.logfile + 'car.csv'
+
+		data = np.loadtxt(filename, delimiter=',', skiprows=)
+
+		self.traj = []
+
+		for row in data:
+			self.traj.append({
+				't': row[0],
+				'p': np.array([row[1], row[2]]),
+				'v': row[3],
+				'a': row[4],
+				'vref': row[5],
+				'th': row[6],
+				'w': row[7],
+				'u': row[8]
+			})
 	
 	########################################
 	# termina a missao
