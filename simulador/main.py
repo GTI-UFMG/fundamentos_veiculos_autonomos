@@ -44,7 +44,7 @@ def vision_func(car):
 	
 	# ultrasom
 	dist, _ = car.get_distance()
-	print(f'Ultrasonic distance: {dist:.1f}')
+	#print(f'Ultrasonic distance: {dist:.1f}')
 	
 	return image
 				

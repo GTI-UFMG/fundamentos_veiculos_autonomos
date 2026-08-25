@@ -487,7 +487,7 @@ class Car:
 	def load(self):
 		filename = self.logfile + 'car.csv'
 
-		data = np.loadtxt(filename, delimiter=',', skiprows=)
+		data = np.loadtxt(filename, delimiter=',', skiprows=1 )
 
 		self.traj = []
 
