@@ -435,6 +435,8 @@ class Car:
 		# trata imagem		
 		img = np.frombuffer(image, dtype=np.uint8)
 		img.resize([resolution[1], resolution[0],3])
+		# corrige orientacao da imagem do CoppeliaSim
+		img = np.flipud(img)
 		return img
 		
 	########################################

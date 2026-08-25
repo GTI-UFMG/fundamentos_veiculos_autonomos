@@ -8,8 +8,10 @@
 ########################################
 import class_car as cp
 import numpy as np
+import os
+os.environ["QT_QPA_PLATFORM"] = "xcb"
 import matplotlib.pyplot as plt
-plt.rcParams['figure.figsize'] = (8,6)
+plt.rcParams['figure.figsize'] = (10,10)
 
 # Globais
 parameters = {	
@@ -42,14 +44,14 @@ def vision_func(car):
 	
 	# ultrasom
 	dist, _ = car.get_distance()
-	#print('Ultrasonic distance: ', np.round(dist,2))
+	print(f'Ultrasonic distance: {dist:.1f}')
 	
 	return image
 				
 ########################################
-# executa controle
+# main program
 ########################################
-def run(parameters):
+if __name__ == "__main__":
 	
 	plt.figure(1)
 	plt.ion()
@@ -77,7 +79,7 @@ def run(parameters):
 			# plota	
 			plt.subplot(211)
 			plt.cla()
-			plt.gca().imshow(image, origin='lower')
+			plt.gca().imshow(image)
 			plt.title('t = %.1f' % car.t)
 			
 			plt.subplot(212)
@@ -91,18 +93,9 @@ def run(parameters):
 			plt.show()
 			plt.pause(0.01)
 
-		# termina a missao
-		car.stop_mission()
 		# salva
 		if parameters['save']:
 			car.save()
 			
 	finally:
 		car.close()
-	
-	plt.ioff()
-
-########################################
-########################################
-if __name__=="__main__":
-	run(parameters)
