@@ -95,7 +95,7 @@ def run(parameters):
 		car.stop_mission()
 		# salva
 		if parameters['save']:
-			car.save(parameters['logfile'])
+			car.save()
 			
 	finally:
 		car.close()

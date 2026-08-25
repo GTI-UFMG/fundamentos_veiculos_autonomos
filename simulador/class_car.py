@@ -451,15 +451,15 @@ class Car:
 		
 	########################################
 	# save traj
-	def save(self, log):
-		filename = log + 'car.npz'
+	def save(self):
+		filename = self.logfile + 'car.npz'
 		data = [traj for traj in self.traj]
 		np.savez(filename, data=data)
-		
+
 	########################################
 	# load traj
-	def load(self, log):
-		filename = log + 'car.npz'
+	def load(self):
+		filename = self.logfile + 'car.npz'
 		data = np.load(filename, allow_pickle=True)
 		self.traj = data['data']
 	
