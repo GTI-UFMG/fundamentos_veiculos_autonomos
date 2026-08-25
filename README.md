@@ -1,7 +1,7 @@
-## Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): Fundamentos de Veículos Autônomos – 2025/2
+## Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): Fundamentos de Veículos Autônomos – 2026/2
 
 - Professores: Armando Alves Neto e Leonardo A. Mozelli
-- Cursos: Engenharia de Controle e Automação
+- Cursos: Eng. de Controle e Automação e Eng. Elétrica
 - Dep. de Engenharia Eletrônica – Escola de Engenharia
 - Universidade Federal de Minas Gerais
 
