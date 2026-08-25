@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Disciplina: Tópicos em Engenharia de Controle e Automação IV (ENG075): 
-# Fundamentos de Veículos Autônomos - 2024/1
+# Fundamentos de Veículos Autônomos - 2026/1
 # Professores: Armando Alves Neto e Leonardo A. Mozelli
 # Cursos: Engenharia de Controle e Automação
 # DELT – Escola de Engenharia
@@ -11,13 +11,14 @@ sys.path.append("coppeliasim_zmqremoteapi/")
 from coppeliasim_zmqremoteapi_client import *
 import numpy as np
 import time
+import class_filter
 
 ########################################
 # GLOBAIS
 ########################################
 # parametros do carro
 CAR = {
-		'VELMAX'	: 5.0,				# m/s
+		'VELMAX'	: 1.5,				# m/s
 		'ACCELMAX'	: 1.0, 				# m/s^2
 		'STEERMAX'	: np.deg2rad(20.0),	# deg
 		'MASS'		: 6.3,				# kg
@@ -38,11 +39,8 @@ class Car:
 		
 		self.parameters = parameters
 		
-		# id do carro no comboio
-		self.id = parameters['car_id']
-		
 		# inicia simulador
-		self.initCoppeliaSim()
+		self.init_coppelia_sim()
 		
 		# tempo
 		self.t = 0.0
@@ -53,6 +51,9 @@ class Car:
 		self.vref = 0.0
 		self.v = 0.0
 		
+		# marcha
+		self.gear = 1   # +1 forward, -1 reverse
+		
 		# comando de aceleracao
 		self.u = 0.0
 		
@@ -60,28 +61,30 @@ class Car:
 		self.st = 0.0
 
 		# filtros dos sinais
-		self.v_filt    = Filter(alpha=0.6)
-		self.a_filt    = Filter(alpha=0.2)
-		self.vref_filt = Filter(alpha=0.2)
-		self.w_filt    = Filter(alpha=0.5)
+		self.v_filt    = class_filter.AlphaFilter(alpha=0.6)
+		self.a_filt    = class_filter.AlphaFilter(alpha=0.2)
+		self.vref_filt = class_filter.AlphaFilter(alpha=0.2)
+		self.w_filt    = class_filter.AlphaFilter(alpha=0.5)
 		
 		# logs de salvamento
 		self.logfile = parameters['logfile']
 		# Crie a pasta se ela não existir
 		os.makedirs(self.logfile, exist_ok=True)
 		
-		print('Carro %d pronto!' % self.id, flush=True)
+		print("\033[33m##############################\033[0m", flush=True)
+		print("\033[33mCarro pronto!\033[0m", flush=True)
+		print("\033[33m##############################\033[0m", flush=True)
 		
 	########################################
 	# inicializa interacao com o Coppelia -- Connect to CoppeliaSim
-	def initCoppeliaSim(self):
+	def init_coppelia_sim(self):
 			
 		# Cria o cliente
 		RemoteAPIClient().getObject('sim').stopSimulation()
 		self.client = RemoteAPIClient()
 		self.sim = self.client.getObject('sim')
 		
-		car_name = '/Car'#_%d' % self.id
+		car_name = '/Car'
 		
 		# car
 		self.robot = self.sim.getObject(car_name)
@@ -118,29 +121,29 @@ class Car:
 	
 	########################################
 	# get states
-	def getStates(self):
+	def get_states(self):
 
 		# velocidade 
 		self.v_ant = self.v
-		self.v, self.w = self.getVel()
+		self.v, self.w = self.get_vel()
 
 		# aceleracao
-		self.a = self.getAccel()
+		self.a = self.get_accel()
 
 		# orientacao
-		self.th = self.getYaw()
+		self.th = self.get_yaw()
 		
 		# posicao
-		self.p = self.getPos()
+		self.p = self.get_pos()
 		
 		# tempo
-		self.t = self.getTime() - self.tinit
+		self.t = self.get_time() - self.tinit
 				
 		return self.p, self.v, self.a, self.th, self.w, self.t
 	
 	########################################
 	# comeca a missao
-	def startMission(self):
+	def start_mission(self):
 		
 		# sicronizado com o simulador
 		self.client.setStepping(True)
@@ -149,31 +152,23 @@ class Car:
 		self.sim.startSimulation()
 		
 		# tempo inicial
-		self.tinit = self.getTime()
+		self.tinit = self.get_time()
 		
 		# estados iniciais
-		self.getStates()
+		self.get_states()
 		
+		# comeca na marcha para frente
+		self.set_forward()
+
 		# comeca parado
-		self.setU(0.0)
-		self.setSteer(0.0)
+		self.set_u(0.0)
+		self.set_steer(0.0)
 		
 		# seta orientacao da camera
-		self.setPanTilt()
+		self.set_pan_tilt()
 		
 		# salva trajetoria
-		self.saveTraj()
-		
-	########################################
-	# termina a missao
-	def stopMission(self):
-		
-		# termina parado
-		self.setU(-CAR['ACCELMAX'])
-		self.setSteer(0.0)
-
-		# stop simulador
-		self.sim.stopSimulation()
+		self.save_traj()
 	
 	########################################
 	def step(self):
@@ -185,17 +180,17 @@ class Car:
 		t0 = self.t
 		
 		# condicoes iniciais
-		self.getStates()
+		self.get_states()
 		
 		# atualiza amostragem
 		self.dt = self.t - t0
 		
 		# salva trajetoria
-		self.saveTraj()
+		self.save_traj()
 		
 	########################################
 	# salva a trajetoria
-	def saveTraj(self):
+	def save_traj(self):
 		
 		# dados
 		data = {	't'     : self.t, 
@@ -216,7 +211,7 @@ class Car:
 			
 	########################################
 	# retorna tempo da simulacao no Coppelia
-	def getTime(self):
+	def get_time(self):
 		#while True:
 		t = self.sim.getSimulationTime()
 		if (t != -1.0): # Em caso de não retornar um erro
@@ -224,7 +219,7 @@ class Car:
 					
 	########################################
 	# retorna posicao do carro
-	def getPos(self):
+	def get_pos(self):
 		while True:
 			pos = self.sim.getObjectPosition(self.robot, -1)
 			if (pos != -1):
@@ -232,7 +227,7 @@ class Car:
 				
 	########################################
 	# retorna yaw
-	def getYaw(self):
+	def get_yaw(self):
 		while True:		
 			q = self.sim.getObjectQuaternion(self.robot,-1)
 			if (q != -1):
@@ -264,96 +259,150 @@ class Car:
 		yaw = np.arctan2(2 * (qx * qy + qw * qz), qw**2 + qx**2 - qy**2 - qz**2)
 
 		return yaw
-		
+				
 	########################################
 	# retorna velocidades linear e angular
-	def getVel(self):
-		
-		while True:		
+	def get_vel(self):
+
+		while True:
 			lin, ang = self.sim.getObjectVelocity(self.robot)
-			if (lin != -1): # CHECAR ERRO
+			if lin != -1:
 				break
-		
-		# velocidade linear
-		v = self.v_filt.filter(np.linalg.norm(lin))
-		
-		# velocidade angular
+
+		# velocidade longitudinal
+		v = self.gear * np.linalg.norm(lin)
+
+		# filtros
+		v = self.v_filt.filter(v)
 		w = self.w_filt.filter(ang[2])
-		
-		return  v, w
+
+		return v, w
 	
 	########################################
 	# retorna aceleracao
-	def getAccel(self):
+	def get_accel(self):
 		
 		if self.dt == 0.0:
 			return 0.0
 			
 		a = (self.v - self.v_ant)/self.dt
 		# filtro
-		a = self.a_filt.filter(a)
+		af = self.a_filt.filter(a)
 		
-		return a
+		return af
+		
+	########################################
+	# seta referencia de controle
+	def set_ref(self, vref):
+
+		self.vref = self.vref_filt.filter(vref)
+		self.vref = np.clip(self.vref, -CAR['VELMAX'], CAR['VELMAX'])
+
+		# troca para re
+		if (self.vref < 0.0) and (self.gear == 1):
+			self.set_reverse()
+
+		# troca para frente
+		elif (self.vref > 0.0) and (self.gear == -1):
+			self.set_forward()
+
+		return self.vref
 					
 	########################################
 	# seta torque do veiculo
-	def setVel(self, vref):
+	def set_vel(self, vref):
 		
 		# ganhos
 		Kp = 3.5
 		Kd = 2.5
 		
-		# referencia de velocidade
-		self.vref = self.vref_filt.filter(vref)
-		self.vref = np.clip(self.vref, 0.0, CAR['VELMAX'])
+		# define referencia e marcha
+		self.set_ref(vref)
 		
-		# controle de velocidade
-		du = Kp*(self.vref - self.v) + Kd*(-self.a)
+		# controla magnitude da velocidade
+		vref_abs = abs(self.vref)
+		v_abs = abs(self.v)
+
+		# aceleracao da magnitude
+		a_abs = np.sign(self.v) * self.a
+
+		# controle PD
+		du = Kp*(vref_abs - v_abs) - Kd*a_abs
 		u = self.u + du*self.dt
-		self.setU(u)
+		self.set_u(u)
 	
 	########################################
 	# seta torque dos motores do veiculo
-	def setU(self, u):
-		
+	def set_u(self, u):
+
 		# limita aceleracao
 		self.u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
-		# controlador linearizante
-		F = []
-		s = np.tanh(10.0*self.v)
-		F.append(s*CAR['MASS']*CAR['GRAV']*CAR['MI'])
-		F.append(CAR['MASS']*self.u)
-		
-		# torque de referencia
-		GAMMA = 0.63 # reducao interna do eixo
-		T = GAMMA*CAR['RW']*np.sum(F)
-		
-		# impede que o carro se movimente para tras
-		if (s < 0) and (np.sign(u) < 0.0):
-			T = 0.0
-		
-		# atua
-		for m in [self.motorL, self.motorR]:		
-			# Set the velocity to some large number with the correct sign, because v-rep is weird like that
-			while True:
-				status = self.sim.setJointTargetVelocity(m, np.sign(T)*CAR['VELMAX'])
-				if status == 1:
-					break
-			# Apply the desired torques to the joints
-			while True:
-				status = self.sim.setJointForce(m, np.abs(T))
-				if status == 1:
-					break
+		# magnitude da velocidade
+		v_abs = abs(self.v)
 
+		# compensacao da forca de atrito
+		s = np.tanh(10.0*v_abs)
+		F_friction = s*CAR['MASS']*CAR['GRAV']*CAR['MI']
+
+		# forca longitudinal
+		F = F_friction + CAR['MASS']*self.u
+		
+		# torque
+		GAMMA = 0.63
+		T = GAMMA*CAR['RW']*F
+
+		# aplica o sentido da marcha
+		T = self.gear*T
+
+		# atua
+		for m in [self.motorL, self.motorR]:
+			# Set the velocity to some large number with the correct sign, because v-rep is weird like that
+			self.sim.setJointTargetVelocity(m, np.sign(T)*CAR['VELMAX'])
+			# Apply the desired torques to the joints
+			self.sim.setJointForce(m, abs(T))
+			
+	########################################
+	# vai para frente
+	def set_forward(self):
+
+		# se ja esta para frente, nao faz nada
+		if self.gear == 1:
+			return
+
+		# freia ate parar
+		while abs(self.v) > 0.1:
+			self.set_u(-CAR['ACCELMAX'])
+			self.step()
+
+		# troca a marcha
+		self.gear = 1
+		
+	########################################
+	# coloca re
+	def set_reverse(self):
+
+		# se ja esta de re, nao faz nada
+		if self.gear == -1:
+			return
+
+		# freia ate parar
+		while abs(self.v) > 0.1:
+			self.set_u(-CAR['ACCELMAX'])
+			self.step()
+
+		# troca a marcha
+		self.gear = -1
+		
 	########################################
 	# seta steer do veiculo
-	def setSteer(self, st):
+	def set_steer(self, st):
 		
 		# distancia entre rodas
 		width = 0.108
-
-		st = np.clip(st, -CAR['STEERMAX'], CAR['STEERMAX'])
+		
+		self.st = np.clip(st, -CAR['STEERMAX'], CAR['STEERMAX'])
+		st = self.st
 		if np.tan(st) == 0:
 			stL = stR = 0.0
 		else:
@@ -372,12 +421,12 @@ class Car:
 	
 	########################################
 	# seta orientacao da camera
-	def setPanTilt(self, pan=np.deg2rad(0.0), tilt=np.deg2rad(-35.0)):
+	def set_pan_tilt(self, pan=np.deg2rad(0.0), tilt=np.deg2rad(-35.0)):
 		return
 			
 	########################################
 	# get image data
-	def getImage(self, gray=False):
+	def get_image(self, gray=False):
 			
 		while True:
 			image, resolution = self.sim.getVisionSensorImg(self.cam)
@@ -390,67 +439,49 @@ class Car:
 		
 	########################################
 	# get ultrasonic distance
-	def getDistance(self, max_dist=4.0):
-		
-		# CoppeliaSim retorna: res, dist, point(list3), obj, normal(list3)
-		hit, dist, p, obj, _n = self.sim.readProximitySensor(self.ultra)  # lê resultado do último handle
+	def get_distance(self, max_dist=4.0):
+		# CoppeliaSim retorna: hit, dist, point(list3), obj, normal(list3)
+		hit, dist, p, obj, _n = self.sim.readProximitySensor(self.ultra)
 		if hit:
-			return float(dist)
+			dist = min(float(dist), max_dist)
 		else:
-			return max_dist
+			dist = max_dist
+		valid = True # sempre eh valido
+		return dist, valid
 		
 	########################################
 	# save traj
 	def save(self, log):
-		filename = log + ('car%d.npz') % self.id
+		filename = log + 'car.npz'
 		data = [traj for traj in self.traj]
 		np.savez(filename, data=data)
 		
 	########################################
 	# load traj
 	def load(self, log):
-		filename = log + ('car%d.npz') % self.id
+		filename = log + 'car.npz'
 		data = np.load(filename, allow_pickle=True)
 		self.traj = data['data']
-		
-	########################################
-	# termina a classe
-	def __del__(self):
-		# fecha simulador
-		self.stopMission()
-		
-		print ('Programa terminado!')
-			
-	########################################
-	# termina a classe
-	def __exit__(self):
-		for _ in range(2):
-			time.sleep(.1)
-			self.stopMission()
-		self.__del__()
-
-########################################
-# filtro da media móvel
-########################################
-class Filter:
-	########################################
-	# construtor
-	def __init__(self, alpha=0.5):
-		self.alpha = alpha
-		self.alpha = np.clip(self.alpha, 0.0, 1.0)
-		self.m = 0.0
 	
 	########################################
-	def filter(self, m):
-		try:
-			self.m = self.alpha*m + (1.0-self.alpha)*self.m
-		except:
-			print('erro...')
-			self.m = m
+	# termina a missao
+	def stop_mission(self):
 		
-		return self.m
+		# termina parado
+		self.set_u(-CAR['ACCELMAX'])
+		self.set_steer(0.0)
+		
+		# espera ate parar
+		while abs(self.v) > 0.1:
+			self.step()
 
+		# stop simulador
+		self.sim.stopSimulation()
+		
 	########################################
-	# termina a classe
-	def __del__(self):
-		None
+	# fecha tudo
+	def close(self):
+		self.stop_mission()
+		print("\033[33m##############################\033[0m", flush=True)
+		print("\033[33mMissao terminada!\033[0m", flush=True)
+		print("\033[33m##############################\033[0m", flush=True)
