@@ -98,10 +98,10 @@ class Car:
 		
 		# logs de salvamento
 		if self.parameters['save']:
-			self.logfile = parameters['logfile']
-			# Nome do diretorio com o timestamp
-			self.logfile += datetime.now().strftime("%Y%m%d_%H%M%S") + "/"
-			# Crie a pasta se ela nao existir
+			# logs de salvamento
+			timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+			self.logfile = os.path.join(parameters['logfile'], timestamp)
+			# cria a pasta do experimento
 			os.makedirs(self.logfile, exist_ok=True)
 		
 	########################################
@@ -428,18 +428,28 @@ class Car:
 		return d , valid
 	
 	########################################
-	# save traj
+	# save traj em csv		
 	def save(self):
-		filename = self.logfile + 'card.npz'
-		data = [traj for traj in self.traj]
-		np.savez(filename, data=data)
-		
-	########################################
-	# load traj
-	def load(self):
-		filename = self.logfile + 'car.npz'
-		data = np.load(filename, allow_pickle=True)
-		self.traj = data['data']
+		filename = os.path.join(self.logfile, 'car.csv')
+
+		data = np.array([
+			[
+				traj['t'],
+				traj['p'][0],
+				traj['p'][1],
+				traj['v'],
+				traj['a'],
+				traj['vref'],
+				traj['th'],
+				traj['w'],
+				traj['u']
+			]
+			for traj in self.traj
+		])
+
+		header = 't,x,y,v,a,vref,th,w,u'
+
+		np.savetxt(filename, data, delimiter=',', header=header,  comments='')
 	
 	########################################
 	# termina a missao
