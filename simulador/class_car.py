@@ -11,6 +11,8 @@ sys.path.append("coppeliasim_zmqremoteapi/")
 from coppeliasim_zmqremoteapi_client import *
 import numpy as np
 import time
+import threading
+from datetime import datetime
 import class_filter
 
 ########################################
@@ -59,6 +61,9 @@ class Car:
 		
 		# comando de esterçamento
 		self.st = 0.0
+		
+		# trhead do beep
+		self.thread = None
 
 		# filtros dos sinais
 		self.v_filt    = class_filter.AlphaFilter(alpha=0.6)
@@ -67,8 +72,9 @@ class Car:
 		self.w_filt    = class_filter.AlphaFilter(alpha=0.5)
 		
 		# logs de salvamento
-		self.logfile = parameters['logfile']
-		# Crie a pasta se ela não existir
+		timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+		self.logfile = os.path.join(parameters['logfile'], timestamp)
+		# cria a pasta do experimento
 		os.makedirs(self.logfile, exist_ok=True)
 		
 		print("\033[33m##############################\033[0m", flush=True)
@@ -164,8 +170,8 @@ class Car:
 		self.set_u(0.0)
 		self.set_steer(0.0)
 		
-		# seta orientacao da camera
-		self.set_pan_tilt()
+		# aviso sonoro de inicio
+		self.beep([0.2] * 3, silence=0.2)
 		
 		# salva trajetoria
 		self.save_traj()
@@ -184,6 +190,10 @@ class Car:
 		
 		# atualiza amostragem
 		self.dt = self.t - t0
+		
+		# se esta dando re, avise
+		if self.gear == -1:
+			self.beep(0.3, silence=1.0)
 		
 		# salva trajetoria
 		self.save_traj()
@@ -420,11 +430,6 @@ class Car:
 				break
 	
 	########################################
-	# seta orientacao da camera
-	def set_pan_tilt(self, pan=np.deg2rad(0.0), tilt=np.deg2rad(-35.0)):
-		return
-	
-	########################################
 	# get image data
 	def get_image(self, gray=False):
 		
@@ -459,9 +464,9 @@ class Car:
 		return dist, valid
 	
 	########################################
-	# save traj em csv
+	# save traj em csv		
 	def save(self):
-		filename = self.logfile + 'car.csv'
+		filename = os.path.join(self.logfile, 'car.csv')
 
 		data = np.array([
 			[
@@ -480,29 +485,33 @@ class Car:
 
 		header = 't,x,y,v,a,vref,th,w,u'
 
-		np.savetxt(filename, data, delimiter=',', header=header, comments='')
-
+		np.savetxt(filename, data, delimiter=',', header=header,  comments='')
+			
 	########################################
-	# load traj
-	def load(self):
-		filename = self.logfile + 'car.csv'
-
-		data = np.loadtxt(filename, delimiter=',', skiprows=1 )
-
-		self.traj = []
-
-		for row in data:
-			self.traj.append({
-				't': row[0],
-				'p': np.array([row[1], row[2]]),
-				'v': row[3],
-				'a': row[4],
-				'vref': row[5],
-				'th': row[6],
-				'w': row[7],
-				'u': row[8]
-			})
-	
+	# dispara um ou mais beeps
+	def beep(self, durations=0.1, silence=0.1):
+		
+		if not self.parameters['beep']:
+			return
+			
+		# verifica duracoes
+		if isinstance(durations, (int, float)):
+			durations = [durations]
+		durations = [max(0.0, float(d)) for d in durations]
+		
+		# dispara beeps
+		if self.thread is not None and self.thread.is_alive():
+			return
+		self.thread = threading.Thread(target=self._beep_pattern, args=(durations, silence,), daemon=True)
+		self.thread.start()
+			
+	########################################
+	# executa os beeps
+	def _beep_pattern(self, durations, silence=0.1):
+		for duration in durations:
+			print('\a', end='', flush=True)
+			time.sleep(silence)
+			
 	########################################
 	# termina a missao
 	def stop_mission(self):
@@ -515,6 +524,10 @@ class Car:
 		while abs(self.v) > 0.1:
 			self.step()
 
+		# aviso sonoro de fim
+		self.beep([0.2] * 5, silence=0.2)
+		time.sleep(1.0)
+		
 		# stop simulador
 		self.sim.stopSimulation()
 		

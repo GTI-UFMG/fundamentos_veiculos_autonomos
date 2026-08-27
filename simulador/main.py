@@ -11,13 +11,14 @@ import numpy as np
 import os
 os.environ["QT_QPA_PLATFORM"] = "xcb"
 import matplotlib.pyplot as plt
-plt.rcParams['figure.figsize'] = (10,10)
+plt.rcParams['figure.figsize'] = (6,8)
 
 # Globais
 parameters = {	
 				'ts'		: 10.0, 			# tempo da simulacao
 				'save'		: True,
 				'logfile'	: 'logs/',
+				'beep'		: True,
 			}
 	
 ########################################
@@ -80,7 +81,8 @@ if __name__ == "__main__":
 			plt.subplot(211)
 			plt.cla()
 			plt.gca().imshow(image, cmap='gray')
-			plt.title('t = %.1f' % car.t)
+			plt.axis('off')
+			plt.title(f'Telemetria em t={car.t:.1f}s')
 			
 			plt.subplot(212)
 			plt.cla()
