@@ -105,6 +105,42 @@ class RsyncGUI(tk.Tk):
 
 	# ----------------------------
 	def _build_ui(self):
+
+		# =========================
+		# Cabecalho
+		# =========================
+		header = ttk.Frame(self)
+		header.pack(fill="x", padx=15, pady=(10, 5))
+
+		# titulo
+		title_frame = ttk.Frame(header)
+		title_frame.pack(side="left")
+
+		ttk.Label(
+			title_frame,
+			text="FVA — Fundamentos de Veículos Autônomos",
+			font=("Arial", 18, "bold")
+		).pack(anchor="w")
+
+		ttk.Label(
+			title_frame,
+			text="Gerenciador dos Veículos Experimentais",
+			font=("Arial", 12)
+		).pack(anchor="w")
+
+		# logo UFMG
+		self.ufmg_logo = tk.PhotoImage(file="ufmg_logo.png")
+		# reduz a imagem pela metade
+		self.ufmg_logo = self.ufmg_logo.subsample(6, 6)
+
+		ttk.Label(
+			header,
+			image=self.ufmg_logo
+		).pack(side="right")
+
+		# =========================
+		# Abas
+		# =========================	
 		notebook = ttk.Notebook(self)
 		notebook.pack(fill="both", expand=True)
 
@@ -555,7 +591,7 @@ class RsyncGUI(tk.Tk):
 
 		for name, ip in targets:
 			self.cmdlog_write("\n" + "=" * 60)
-			self.cmdlog_write(f"💻 Executando em {name.upper()} ({ip}) - workdir: {remote_workdir}")
+			self.cmdlog_write(f"💻 Executando carro {name.upper()} ({ip}) - workdir: {remote_workdir}")
 			for raw_cmd in cmds:
 				# 1) força caminho absoluto quando for python* main.py
 				cmd_line = absolutize_python_main(raw_cmd)
@@ -625,7 +661,7 @@ class RsyncGUI(tk.Tk):
 						self.cmdlog_write(f"⚠️ Retorno {proc.returncode} para comando: {raw_cmd}")
 				except Exception as e:
 					self.cmdlog_write(f"❌ Erro: {e}")
-			self.cmdlog_write(f"✅ Finalizado em {name.upper()}")
+			self.cmdlog_write(f"✅ Carro {name.upper()} finalizado")
 
 	# ----------------------------
 	# Execução remota (aba 3)
