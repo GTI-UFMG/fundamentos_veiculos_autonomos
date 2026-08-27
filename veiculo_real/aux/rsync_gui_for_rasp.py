@@ -81,8 +81,8 @@ def find_ip_by_mac_arptable(target_mac: str):
 class RsyncGUI(tk.Tk):
 	def __init__(self):
 		super().__init__()
-		self.title("Gerenciador de Raspberries (envio e comandos)")
-		self.geometry("950x640")
+		self.title("FVA - gerenciador de controle")
+		self.geometry("1024x720")
 		#self.attributes("-fullscreen", True)
 		#self.bind("<Escape>", lambda event: self.attributes("-fullscreen", False))
 		self.devices = {}
@@ -110,11 +110,15 @@ class RsyncGUI(tk.Tk):
 
 		self.tab_files = ttk.Frame(notebook)
 		self.tab_cmds = ttk.Frame(notebook)
+		self.tab_data = ttk.Frame(notebook)
+
 		notebook.add(self.tab_files, text="📂 Enviar Arquivos")
 		notebook.add(self.tab_cmds, text="💻 Executar Comandos")
+		notebook.add(self.tab_data, text="📊 Coletar Dados")
 
 		self._build_tab_files(self.tab_files)
 		self._build_tab_cmds(self.tab_cmds)
+		self._build_tab_data(self.tab_data)
 
 	# ----------------------------
 	def _build_tab_files(self, parent):
@@ -213,26 +217,138 @@ class RsyncGUI(tk.Tk):
 
 		ttk.Button(parent, text="Executar nos selecionados", command=self.run_cmds_on_selected).pack(pady=6)
 
-		# grafico de telemetria
-		self.fig = Figure(figsize=(8, 3), dpi=100)
-		self.ax = self.fig.add_subplot(111)
-
-		self.ax.set_xlabel("Tempo [s]")
-		self.ax.set_ylabel("Velocidade [m/s]")
-		self.ax.grid(True)
-
-		self.canvas = FigureCanvasTkAgg(self.fig, master=parent)
-		self.canvas.get_tk_widget().pack(
+		# area inferior: grafico e terminal lado a lado
+		bottom = ttk.PanedWindow(parent, orient="horizontal")
+		bottom.pack(
 			fill="both",
 			expand=True,
 			padx=10,
 			pady=6
 		)
 
-		self.cmd_log = scrolledtext.ScrolledText(parent, height=16)
-		self.cmd_log.pack(fill="both", expand=True, padx=10, pady=6)
+		# ----------------------------
+		# painel do grafico
+		plot_frame = ttk.Frame(bottom)
+
+		self.fig = Figure(figsize=(6, 4), dpi=100)
+		self.ax = self.fig.add_subplot(111)
+
+		self.ax.set_xlabel("Tempo [s]")
+		self.ax.set_ylabel("Velocidade [m/s]")
+		self.ax.grid(True)
+
+		self.canvas = FigureCanvasTkAgg(
+			self.fig,
+			master=plot_frame
+		)
+		self.canvas.get_tk_widget().pack(
+			fill="both",
+			expand=True
+		)
+
+		# ----------------------------
+		# painel do terminal
+		terminal_frame = ttk.Frame(bottom)
+
+		ttk.Label(
+			terminal_frame,
+			text="Terminal:"
+		).pack(anchor="w")
+
+		self.cmd_log = scrolledtext.ScrolledText(
+			terminal_frame
+		)
+		self.cmd_log.pack(
+			fill="both",
+			expand=True
+		)
 		self.cmd_log.configure(state="disabled")
 
+		# adiciona os dois lados
+		bottom.add(plot_frame, weight=1)
+		bottom.add(terminal_frame, weight=1)
+
+	# ----------------------------
+	def _build_tab_data(self, parent):
+
+		ttk.Label(
+			parent,
+			text="Coletar dados dos experimentos armazenados nas Raspberries"
+		).pack(
+			anchor="w",
+			padx=10,
+			pady=(10, 6)
+		)
+
+		# dispositivos
+		devices_frame = ttk.Frame(parent)
+		devices_frame.pack(fill="x", padx=10, pady=6)
+
+		ttk.Label(
+			devices_frame,
+			text="Os carrinhos selecionados na aba 'Enviar Arquivos' serão utilizados."
+		).pack(anchor="w")
+
+		# pasta local
+		local_frame = ttk.Frame(parent)
+		local_frame.pack(fill="x", padx=10, pady=10)
+
+		ttk.Label(
+			local_frame,
+			text="Destino no computador:"
+		).pack(side="left")
+
+		self.data_dest_entry = ttk.Entry(local_frame)
+		self.data_dest_entry.insert(
+			0,
+			os.path.join(os.getcwd(), "experimentos")
+		)
+		self.data_dest_entry.pack(
+			side="left",
+			fill="x",
+			expand=True,
+			padx=8
+		)
+
+		ttk.Button(
+			local_frame,
+			text="Selecionar...",
+			command=self.select_data_destination
+		).pack(side="left")
+
+		# botao de coleta
+		ttk.Button(
+			parent,
+			text="📥 Coletar dados dos selecionados",
+			command=self.collect_data
+		).pack(
+			anchor="w",
+			padx=10,
+			pady=6
+		)
+
+		# log
+		ttk.Label(
+			parent,
+			text="Transferências:"
+		).pack(
+			anchor="w",
+			padx=10,
+			pady=(10, 2)
+		)
+
+		self.data_log = scrolledtext.ScrolledText(
+			parent,
+			height=16
+		)
+		self.data_log.pack(
+			fill="both",
+			expand=True,
+			padx=10,
+			pady=(0, 10)
+		)
+		self.data_log.configure(state="disabled")
+		
 	# ----------------------------
 	# Funções utilitárias comuns
 	# ----------------------------
@@ -511,6 +627,125 @@ class RsyncGUI(tk.Tk):
 					self.cmdlog_write(f"❌ Erro: {e}")
 			self.cmdlog_write(f"✅ Finalizado em {name.upper()}")
 
+	# ----------------------------
+	# Execução remota (aba 3)
+	# ----------------------------
+	# ----------------------------
+	def select_data_destination(self):
+		directory = filedialog.askdirectory(
+			title="Selecione onde salvar os dados dos experimentos"
+		)
+
+		if directory:
+			self.data_dest_entry.delete(0, "end")
+			self.data_dest_entry.insert(0, directory)
+
+	# ----------------------------
+	def collect_data(self):
+
+		targets = self.get_selected_devices()
+
+		if not targets:
+			messagebox.showinfo(
+				"Nenhum alvo",
+				"Selecione pelo menos uma Raspberry com IP."
+			)
+			return
+
+		local_base = self.data_dest_entry.get().strip()
+
+		if not local_base:
+			messagebox.showinfo(
+				"Destino inválido",
+				"Selecione uma pasta para salvar os dados."
+			)
+			return
+
+		os.makedirs(local_base, exist_ok=True)
+
+		threading.Thread(
+			target=self._collect_data,
+			args=(targets, local_base),
+			daemon=True
+		).start()
+	
+	# ----------------------------
+	def _collect_data(self, targets, local_base):
+
+		user = self.user_entry.get().strip() or SSH_USER
+		password = self.pass_entry.get().strip()
+		has_sshpass = shutil.which("sshpass") is not None
+
+		remote_workdir = (
+			self.dest_entry.get().strip() or DEFAULT_DEST
+		).rstrip("/")
+
+		remote_logs = remote_workdir + "/logs/"
+
+		for name, ip in targets:
+
+			# pasta separada para cada carrinho
+			local_dest = os.path.join(local_base, name)
+			os.makedirs(local_dest, exist_ok=True)
+
+			self.datalog_write(
+				f"📥 Coletando dados de {name.upper()} ({ip})..."
+			)
+
+			if password and has_sshpass:
+				cmd = [
+					"sshpass", "-p", password,
+					"rsync",
+					"-avz",
+					f"{user}@{ip}:{remote_logs}",
+					local_dest + "/"
+				]
+			else:
+				cmd = [
+					"rsync",
+					"-avz",
+					f"{user}@{ip}:{remote_logs}",
+					local_dest + "/"
+				]
+
+			try:
+				proc = subprocess.run(
+					cmd,
+					stdout=subprocess.PIPE,
+					stderr=subprocess.STDOUT,
+					text=True,
+					check=False
+				)
+
+				out = proc.stdout or ""
+
+				if out.strip():
+					self.datalog_write(out.strip())
+
+				if proc.returncode == 0:
+					self.datalog_write(
+						f"✅ Dados de {name.upper()} coletados."
+					)
+				else:
+					self.datalog_write(
+						f"❌ Erro ao coletar dados de {name.upper()} "
+						f"(rc={proc.returncode})."
+					)
+
+			except Exception as e:
+				self.datalog_write(
+					f"❌ Erro em {name.upper()}: {e}"
+				)
+
+		self.datalog_write("🏁 Coleta finalizada.")
+		
+	# ----------------------------
+	def datalog_write(self, text):
+		self.data_log.configure(state="normal")
+		self.data_log.insert("end", text + "\n")
+		self.data_log.see("end")
+		self.data_log.configure(state="disabled")
+		
 	# =========================
 	def update_plot(self):
 
