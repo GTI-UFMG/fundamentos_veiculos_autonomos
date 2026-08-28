@@ -130,6 +130,31 @@ class GPS:
 		y = R * dlat
 
 		return x, y
+		
+	########################################
+	# verifica se existe celular conectado
+	########################################
+	def is_available(self):
+
+		try:
+			result = subprocess.run(
+				["adb", "devices"],
+				capture_output=True,
+				text=True,
+				timeout=2
+			)
+
+		except (subprocess.TimeoutExpired, FileNotFoundError):
+			return False
+
+		if result.returncode != 0:
+			return False
+
+		for line in result.stdout.splitlines()[1:]:
+			if line.strip().endswith("\tdevice"):
+				return True
+
+		return False
 
 ########################################
 # main test
@@ -139,6 +164,8 @@ if __name__ == "__main__":
 	import time
 
 	gps = GPS()
+
+	print("GPS disponivel:", gps.is_available())
 
 	print("Aguardando GPS...")
 

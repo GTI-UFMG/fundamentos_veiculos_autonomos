@@ -154,6 +154,20 @@ class Car:
 		else:
 			print("\033[33mCamera desativada.\033[0m", flush=True)
 			
+		# GPS opcional (via celular android)
+		try:
+			from . import gps
+			self.gps = gps.GPS()
+
+			if self.gps.is_available():
+				print("\033[32mGPS disponivel.\033[0m", flush=True)
+			else:
+				self.gps = None
+				print("\033[33mGPS nao disponivel.\033[0m", flush=True)
+		except Exception as e:
+			self.gps = None
+			print(f"\033[33mGPS nao disponivel: {e}\033[0m", flush=True)
+			
 		# carro pronto
 		if self.color is not None:
 			print(f"{COLORS[self.color]}##############################{RESET}", flush=True)
@@ -171,6 +185,13 @@ class Car:
 		# desliga a emergencia
 		self.emergencia = False
 		
+		# define origem do GPS, se disponivel
+		if self.gps is not None:
+			if self.gps.set_origin():
+				print("\033[32mOrigem GPS definida.\033[0m", flush=True)
+			else:
+				print("\033[33mNao foi possivel definir origem GPS.\033[0m", flush=True)
+				
 		# tempo inicial
 		self.tinit = self.get_time()
 		
@@ -265,7 +286,21 @@ class Car:
 	def get_pos(self):
 		x = self.p[0] + self.v*np.cos(self.th)*self.dt
 		y = self.p[1] + self.v*np.sin(self.th)*self.dt
-		return np.array((x, y))			
+		return np.array((x, y))
+		
+	########################################
+	# retorna posicao medida pelo GPS
+	def get_gps_pos(self):
+
+		if self.gps is None:
+			return None
+
+		position = self.gps.get_position()
+
+		if position is None:
+			return None
+
+		return self.gps.get_xy(position)			
 				
 	########################################
 	# retorna yaw - sem bussola
