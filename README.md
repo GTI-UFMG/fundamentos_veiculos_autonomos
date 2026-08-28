@@ -6,7 +6,7 @@
 - Universidade Federal de Minas Gerais
 
 <p align="center">
-  <img src="assets/wallpaper_fva.png" alt="FVA - Fundamentos de Veículos Autônomos" width="700">
+  <img src="veiculo_real/assets/wallpaper_fva.png" alt="FVA - Fundamentos de Veículos Autônomos" width="700">
 </p>
 
 #### Veículo no simulador CoppeliaSim
