@@ -18,7 +18,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 # =========================
 SSH_USER = "alunos"
 DEFAULT_PASS = "fva2023"  # <-- coloque aqui a senha padrão desejada, ex: "rasp123"
-DEFAULT_DEST = "/home/alunos/Desktop/backup_FVA"
+DEFAULT_DEST = "/home/alunos/Desktop/fva"
 RSYNC_OPTS = "-avz --progress"
 
 MACS_CARS = {
@@ -299,9 +299,9 @@ class RsyncGUI(tk.Tk):
 		ttk.Label(cmds_frame, text="Comandos (1 por linha):").pack(anchor="w")
 		self.cmd_text = scrolledtext.ScrolledText(cmds_frame, height=6)
 		self.cmd_text.insert(
-							"end",
-							'pkill -f "/home/alunos/Desktop/backup_FVA/main.py"\n'
-							'python3 main.py\n'
+								"end",
+								'pkill -f "python3.*main.py"\n'
+								'python3 main.py\n'
 							)
 		self.cmd_text.pack(fill="x", pady=4)
 
