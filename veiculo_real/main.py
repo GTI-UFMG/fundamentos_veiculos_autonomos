@@ -7,7 +7,7 @@
 # DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
-import class_car
+from fva_car import Car
 import numpy as np
 import matplotlib.pyplot as plt
 import threading
@@ -86,7 +86,7 @@ if __name__ == "__main__":
 			}
 	
 	# cria comunicacao com o carrinho
-	car = class_car.Car(parameters)
+	car = Car(parameters)
 	thread_control = None
 	thread_vision = None
 
