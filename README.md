@@ -5,6 +5,10 @@
 - Dep. de Engenharia Eletrônica – Escola de Engenharia
 - Universidade Federal de Minas Gerais
 
+<p align="center">
+  <img src="assets/wallpaper_fva.png" alt="FVA - Fundamentos de Veículos Autônomos" width="700">
+</p>
+
 #### Veículo no simulador CoppeliaSim
 
 <p align="center">
