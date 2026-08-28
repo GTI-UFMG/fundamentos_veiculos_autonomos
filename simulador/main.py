@@ -6,7 +6,7 @@
 # DELT – Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
-import class_car as cp
+from fva_car import Car
 import numpy as np
 import os
 os.environ["QT_QPA_PLATFORM"] = "xcb"
@@ -58,7 +58,7 @@ if __name__ == "__main__":
 	plt.ion()
 	
 	# cria comunicação com o carrinho
-	car = cp.Car(parameters)
+	car = Car(parameters)
 	
 	try:
 		# começa a simulação
