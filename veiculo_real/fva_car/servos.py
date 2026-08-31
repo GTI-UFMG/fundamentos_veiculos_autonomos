@@ -12,7 +12,10 @@ import time
 import numpy as np
 import threading
 from enum import Enum
-import class_filter
+try:
+	from . import filter
+except ImportError:
+	import filter
 
 # Canais de entradas dos servos
 SERVO_STEERING  	= 0
@@ -66,7 +69,7 @@ class Servos:
 		# define se o ultrasom vai se mover junto com o estercamento
 		self.ultrasonic = ultrasonic
 		# cria filtro de estercamento
-		self.st_filt = class_filter.MovingAverage(n=10, initial=steering)
+		self.st_filt = filter.MovingAverage(n=10, initial=steering)
 		# inicializa o estercamento
 		self.set_steer(steering)
 		

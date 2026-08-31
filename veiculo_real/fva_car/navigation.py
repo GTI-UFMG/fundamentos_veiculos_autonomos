@@ -9,7 +9,6 @@
 ########################################
 import numpy as np
 
-
 ########################################
 # Navegacao
 ########################################
@@ -128,7 +127,10 @@ class Navigation:
 ########################################
 if __name__ == "__main__":
 
-	from .car import Car
+	try:
+		from .car import Car
+	except ImportError:
+		from car import Car
 
 	# parametros
 	parameters = {

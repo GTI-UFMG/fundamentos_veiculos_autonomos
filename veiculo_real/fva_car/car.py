@@ -10,12 +10,10 @@
 import numpy as np
 import time, os
 from datetime import datetime
-from . import encoder
-from . import servos
-from . import buzzer
-from . import ultrasonic
-from . import imu
-from . import filter
+try:
+	from . import encoder, servos, buzzer, ultrasonic, imu, filter
+except ImportError:
+	import encoder, servos, buzzer, ultrasonic, imu, filter
 
 
 # QUESTAO DA ORIENTACAO DO CARRINHO NA FUSAO DE POSICAO (COMECA SEMPRE PARA O LESTE)
