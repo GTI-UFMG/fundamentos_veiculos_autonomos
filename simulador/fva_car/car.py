@@ -13,7 +13,10 @@ import numpy as np
 import time
 import threading
 from datetime import datetime
-from . import filter
+try:
+	from . import filter
+except ImportError:
+	import filter
 
 ########################################
 # GLOBAIS
