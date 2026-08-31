@@ -76,16 +76,16 @@ class Car:
 		# tempo de amostragem real medido
 		self.dt = 1.0/CAR['PERIOD']
 		
-		# velocidade de comando
+		# velocidade de referencia
 		self.vref = 0.0
-		self.v = 0.0
-		self.a = 0.0
 		
 		# variaveis calculadas
 		self.p = np.zeros(2)
 		self.p_gps = None
 		self.th = 0.0
 		self.w = 0.0
+		self.v = 0.0
+		self.a = 0.0
 		
 		# comando de aceleracao
 		self.u = 0.0
