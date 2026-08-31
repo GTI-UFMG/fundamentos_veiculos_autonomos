@@ -17,6 +17,12 @@ from . import ultrasonic
 from . import imu
 from . import filter
 
+
+# QUESTAO DA ORIENTACAO DO CARRINHO NA FUSAO DE POSICAO (COMECA SEMPRE PARA O LESTE)
+# VERIFICAR SINAL DO GZ DA IMU
+# VERIFICAR EIXO X DA ACELERACAO DA IMU
+# VERIFICAR HEADING DA BUSSOLA COM NORTE MAGNETICO (yaw_geo = np.pi/2 - yaw_mag	)
+
 ########################################
 # GLOBAIS
 ########################################
@@ -59,6 +65,7 @@ class Car:
 		
 		# detecta carrinho pronto
 		self.color = self.get_car_color()
+		
 		# inicializa sensores
 		self.init_sensors()
 		
@@ -74,8 +81,9 @@ class Car:
 		self.v = 0.0
 		self.a = 0.0
 		
-		# variaveis calculadas (sem medicao)
+		# variaveis calculadas
 		self.p = np.zeros(2)
+		self.p_gps = None
 		self.th = 0.0
 		self.w = 0.0
 		
@@ -162,6 +170,7 @@ class Car:
 			if self.gps.is_available():
 				print("\033[32mGPS disponivel.\033[0m", flush=True)
 			else:
+				# sem GPS, use apenas odometria
 				self.gps = None
 				print("\033[33mGPS nao disponivel.\033[0m", flush=True)
 		except Exception as e:
@@ -189,6 +198,12 @@ class Car:
 		if self.gps is not None:
 			if self.gps.set_origin():
 				print("\033[32mOrigem GPS definida.\033[0m", flush=True)
+				
+				# heading inicial pela bussola
+				_, _, yaw_mag = self.imu.get_euler(degrees=False)
+				if yaw_mag is not None:
+					self.th = yaw_mag
+					print("\033[32mHeading inicial definido pela bussola.\033[0m", flush=True)
 			else:
 				print("\033[33mNao foi possivel definir origem GPS.\033[0m", flush=True)
 				
@@ -279,39 +294,56 @@ class Car:
 	########################################
 	# retorna tempo do sistema
 	def get_time(self):
-		return float(time.time())
-					
+		return float(time.monotonic())
+		
 	########################################
-	# retorna posicao do carro - sem GPS
+	# retorna posicao estimada do carro
 	def get_pos(self):
+
+		# predicao pelo modelo cinematico
 		x = self.p[0] + self.v*np.cos(self.th)*self.dt
 		y = self.p[1] + self.v*np.sin(self.th)*self.dt
-		return np.array((x, y))
+		p = np.array((x, y))
+
+		# correcao com GPS, se disponivel
+		if self.gps is not None:
+			position = self.gps.get_position()
+			accuracy = self.gps.get_accuracy()
+
+			# se posicao eh nova
+			if position is not None and self.gps.new_position:
+				p_gps = self.gps.get_xy(position)
+
+				if p_gps is not None:
+					self.p_gps = np.array(p_gps)
+
+					# fusao sensorial simples
+					K = 0.1
+					p = (1.0 - K)*p + K*self.p_gps
+
+		# retorna posicao
+		return p
 		
 	########################################
-	# retorna posicao medida pelo GPS
-	def get_gps_pos(self):
-
-		if self.gps is None:
-			return None
-
-		position = self.gps.get_position()
-
-		if position is None:
-			return None
-
-		return self.gps.get_xy(position)			
-				
-	########################################
-	# retorna yaw - sem bussola
+	# retorna yaw (usa bussola se tiver GPS)
 	def get_yaw(self):
+
+		# predicao pela integracao da velocidade angular
 		yaw = self.th + self.w*self.dt
-		
-		while yaw < 0.0:
-			yaw += 2.0*np.pi
-		while yaw > 2.0*np.pi:
-			yaw -= 2.0*np.pi
-		
+
+		# corrige com bussola somente se houver GPS
+		if self.gps is not None:
+			_, _, yaw_mag = self.imu.get_euler(degrees=False)
+
+			if yaw_mag is not None:
+				K = 0.05
+				# erro angular corretamente embrulhado
+				error = np.arctan2(np.sin(yaw_mag - yaw), np.cos(yaw_mag - yaw))
+				yaw += K*error
+
+		# mantem entre 0 e 2*pi
+		yaw = yaw % (2.0*np.pi)
+
 		return yaw
 		
 	########################################
@@ -327,8 +359,18 @@ class Car:
 		else:
 			vf = self.v
 
-		# velocidade angular calculada pelo modelo cinematico
-		w = (vf / CAR['L']) * np.tan(self.st)
+		# velocidade angular pelo modelo cinematico
+		w_model = (vf / CAR['L']) * np.tan(self.st)
+
+		# velocidade angular medida pela IMU
+		_, _, gz = self.imu.get_gyro()
+		w_imu = np.deg2rad(gz)
+
+		# fusao modelo + IMU
+		K = 0.8
+		w = (1.0 - K)*w_model + K*w_imu
+
+		# filtra velocidade angular
 		wf = self.w_filt.filter(w)
 
 		return vf, wf
@@ -336,14 +378,23 @@ class Car:
 	########################################
 	# retorna aceleracao
 	def get_accel(self):
-		
+
 		if self.dt == 0.0:
 			return 0.0
-		
-		# aceleracao sem IMU, calculada artificialmente
-		a = (self.v - self.v_ant)/self.dt
+
+		# aceleracao pelo encoder
+		a_model = (self.v - self.v_ant)/self.dt
+
+		# aceleracao medida pela IMU
+		a_x, _, _ = self.imu.get_accel()
+
+		# fusao sensorial
+		K = 0.2
+		a = (1.0 - K)*a_model + K*a_x
+
+		# filtra
 		af = self.a_filt.filter(a)
-		
+
 		return af
 	
 	########################################
@@ -539,6 +590,8 @@ class Car:
 		self.imu.close()
 		if self.parameters['camera']:
 			self.cam.close()
+		if self.gps is not None:
+			self.gps.close()
 			
 		# acabou
 		if self.color is not None:
@@ -572,9 +625,9 @@ if __name__ == "__main__":
 		car.start_mission()
 		
 		# testa leitura
-		t0 = time.time()
-		while (time.time() - t0) <= parameters['ts']:
-			t = time.time() - t0
+		t0 = time.monotonic()
+		while (time.monotonic() - t0) <= parameters['ts']:
+			t = time.monotonic() - t0
 			
 			# le sensores
 			car.step()

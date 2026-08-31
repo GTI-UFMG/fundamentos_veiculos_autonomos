@@ -155,6 +155,22 @@ class GPS:
 				return True
 
 		return False
+		
+	########################################
+	# retorna precisao horizontal do GPS
+	########################################
+	def get_accuracy(self):
+
+		if self.position is None:
+			return None
+
+		return self.position["accuracy"]
+		
+	########################################
+	# termina a classe
+	########################################
+	def close(self):
+		pass
 
 ########################################
 # main test
