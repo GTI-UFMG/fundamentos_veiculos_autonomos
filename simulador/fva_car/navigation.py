@@ -109,8 +109,8 @@ class Navigation:
 
 		# verifica se chegou
 		if self.waypoint_reached(waypoint, radius):
-			self.car.set_vel(0.0)
-			self.car.set_steer(0.0)
+			#self.car.set_vel(0.0)
+			#self.car.set_steer(0.0)
 			return True
 
 		# controle de direcao
@@ -121,117 +121,21 @@ class Navigation:
 
 		return False
 		
-	########################################
-	# navega por lista de waypoints
-	########################################
-	def follow_waypoints(self, waypoints, radius=2.0, Kv=0.2, Kp=1.0):
-
-		for i, waypoint in enumerate(waypoints):
-
-			print(
-				f"\nWaypoint {i+1}/{len(waypoints)}: "
-				f"({waypoint[0]:.2f}, {waypoint[1]:.2f})"
-			)
-
-			while True:
-
-				# atualiza estados
-				self.car.step()
-
-				# navega ate waypoint atual
-				reached = self.go_to_waypoint(
-					waypoint,
-					radius=radius,
-					Kv=Kv,
-					Kp=Kp
-				)
-
-				print(
-					f"Pos: ({self.car.p[0]:+.2f}, {self.car.p[1]:+.2f}) m | "
-					f"Dist: {self.distance_to_waypoint(waypoint):.2f} m | "
-					f"Erro: {np.rad2deg(self.heading_error(waypoint)):+.1f} deg | "
-					f"Vel: {self.car.v:+.2f} m/s"
-				)
-
-				if reached:
-					print(f"Waypoint {i+1} atingido!")
-					break
-
-		# terminou todos
-		self.car.set_vel(0.0)
-		self.car.set_steer(0.0)
-
-		return True
-					
 ########################################
 # main teste
 ########################################
 if __name__ == "__main__":
+
+	import matplotlib.pyplot as plt
 
 	try:
 		from .car import Car
 	except ImportError:
 		from car import Car
 
-	# parametros	
-	parameters = {	
-				'ts'		: 10.0, 			# tempo da simulacao
-				'save'		: True,
-				'logfile'	: 'logs/',
-				'beep'		: True,
-			}
-
-	# waypoint local [m]
-	waypoint = (-10.0, -10.0)
-
-	# cria carro e navegacao
-	car = Car(parameters)
-	nav = Navigation(car)
-
-	try:
-		# inicia missao
-		car.start_mission()
-
-		while car.t <= parameters['ts']:
-
-			# atualiza estados
-			car.step()
-
-			# navega
-			reached = nav.go_to_waypoint(waypoint)
-
-			# mostra estados
-			print(
-				f"Pos: ({car.p[0]:+.2f}, {car.p[1]:+.2f}) m | "
-				f"Dist: {nav.distance_to_waypoint(waypoint):.2f} m | "
-				f"Erro: {np.rad2deg(nav.heading_error(waypoint)):+.1f} deg | "
-				f"Vel: {car.v:+.2f} m/s | "
-				f"Ref: {car.vref:+.2f} m/s | "
-				f"Steer: {np.rad2deg(car.st):+.1f} deg"
-			)
-
-			# chegou
-			if reached:
-				print("Waypoint atingido!")
-				break
-
-		# salva
-		if parameters['save']:
-			car.save()
-
-	finally:
-		car.close()
-########################################
-# main teste
-########################################
-if __name__ == "__main__":
-
-	try:
-		from .car import Car
-	except ImportError:
-		from car import Car
-
+	########################################
 	# parametros
+	########################################
 	parameters = {
 		'ts'      : 300.0,
 		'save'    : True,
@@ -239,34 +143,176 @@ if __name__ == "__main__":
 		'beep'    : True,
 	}
 
+	########################################
 	# carrega waypoints
+	########################################
 	data = np.genfromtxt(
-		'full_path_1.csv',
+		'../waypoints/final_dubins_path.csv',
 		delimiter=',',
 		names=True,
 		dtype=None,
 		encoding='utf-8'
 	)
 
-	waypoints = np.column_stack((data['X'], data['Y']))
+	waypoints = np.column_stack(
+		(data['x'], data['y'])
+	)[::2]
 
-	# cria carro
+	# ignora o primeiro ponto START
+	waypoints = waypoints[1:]
+
+	########################################
+	# cria carro e navegacao
+	########################################
 	car = Car(parameters)
 	nav = Navigation(car)
 
+	########################################
+	# grafico
+	########################################
+	traj_x = []
+	traj_y = []
+
+	plt.ion()
+	plt.figure()
+
+	########################################
+	# inicia missao
+	########################################
 	try:
 
 		car.start_mission()
 
-		nav.follow_waypoints(
-			waypoints,
-			radius=2.0,
-			Kv=0.2,
-			Kp=1.0
-		)
+		# waypoint atual
+		i = 0
 
+		while (car.t <= parameters['ts'] and i < len(waypoints)):
+
+			################################
+			# atualiza estados do carro
+			################################
+			car.step()
+
+			# waypoint atual
+			waypoint = waypoints[i]
+
+			################################
+			# navegacao
+			################################
+			reached = nav.go_to_waypoint(
+				waypoint,
+				radius=1.0,
+				Kv=0.2,
+				Kp=0.05
+			)
+
+			################################
+			# salva trajetoria para plot
+			################################
+			traj_x.append(car.p[0])
+			traj_y.append(car.p[1])
+
+			################################
+			# grafico
+			################################
+			plt.clf()
+
+			# caminho dos waypoints
+			plt.plot(
+				waypoints[:, 0],
+				waypoints[:, 1],
+				'--',
+				label='Waypoints'
+			)
+
+			# trajetoria realizada
+			plt.plot(
+				traj_x,
+				traj_y,
+				'-',
+				label='Trajetoria'
+			)
+
+			# posicao atual do carro
+			plt.plot(
+				car.p[0],
+				car.p[1],
+				'o',
+				markersize=10,
+				label='Carro'
+			)
+
+			# waypoint atual
+			plt.plot(
+				waypoint[0],
+				waypoint[1],
+				'x',
+				markersize=12,
+				label='Waypoint atual'
+			)
+
+			plt.xlabel('x [m]')
+			plt.ylabel('y [m]')
+			plt.title(
+				f'Waypoint {i + 1}/{len(waypoints)}'
+			)
+
+			plt.axis('equal')
+			plt.grid()
+			plt.legend()
+
+			plt.show(block=False)
+			plt.pause(0.01)
+
+			################################
+			# informacoes no terminal
+			################################
+			'''print(
+				f"WP: {i + 1}/{len(waypoints)} | "
+				f"Pos: ({car.p[0]:+.2f}, {car.p[1]:+.2f}) m | "
+				f"Dist: {nav.distance_to_waypoint(waypoint):.2f} m | "
+				f"Erro: "
+				f"{np.rad2deg(nav.heading_error(waypoint)):+.1f} deg | "
+				f"Vel: {car.v:+.2f} m/s | "
+				f"Ref: {car.vref:+.2f} m/s | "
+				f"Steer: {np.rad2deg(car.st):+.1f} deg"
+			)'''
+
+			################################
+			# chegou ao waypoint
+			################################
+			if reached:
+
+				print(
+					f"Waypoint {i + 1} atingido!"
+				)
+
+				# proximo waypoint
+				i += 1
+
+		####################################
+		# fim da rota
+		####################################
+		if i == len(waypoints):
+			print(
+				"Todos os waypoints foram atingidos!"
+			)
+
+		####################################
+		# salva log
+		####################################
 		if parameters['save']:
 			car.save()
 
+	except KeyboardInterrupt:
+		print("\nMissao interrompida pelo usuario.")
+	
 	finally:
+
 		car.close()
+
+		####################################
+		# mantem figura aberta
+		####################################
+		plt.ioff()
+		plt.show()

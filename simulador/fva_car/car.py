@@ -248,7 +248,6 @@ class Car:
 	
 		# quaternion to roll-pitch-yaw
 		yaw = self.quaternion_to_yaw(q)
-		yaw -= np.pi
 		while yaw < 0.0:
 			yaw += 2.0*np.pi
 		while yaw > 2.0*np.pi:
@@ -537,7 +536,18 @@ class Car:
 	########################################
 	# fecha tudo
 	def close(self):
-		self.stop_mission()
+		try:
+			self.stop_mission()
+
+		except KeyboardInterrupt:
+			pass
+
+		finally:
+			try:
+				self.sim.stopSimulation()
+			except:
+				pass
+
 		print("\033[33m##############################\033[0m", flush=True)
 		print("\033[33mMissao terminada!\033[0m", flush=True)
 		print("\033[33m##############################\033[0m", flush=True)
