@@ -9,6 +9,9 @@
 ########################################
 import numpy as np
 
+MIN_SPEED = 1.0
+WAYPOINT_RADIUS = 1.0
+
 ########################################
 # Navegacao
 ########################################
@@ -69,11 +72,30 @@ class Navigation:
 	########################################
 	# controla orientacao ate waypoint
 	########################################
-	def steer_to_waypoint(self, waypoint, Kp=0.2):
+	def steer_to_waypoint2(self, waypoint, Kp=0.2):
 
 		error = self.heading_error(waypoint)
 
 		self.car.set_steer(Kp*error)
+
+		return self.car.st
+		
+	def steer_to_waypoint(self, waypoint, Kp=0.2):
+
+		error = self.heading_error(waypoint)
+
+		st_ref = Kp*error
+
+		# limite da taxa de esterçamento
+		st_rate_max = np.deg2rad(20.0)
+		dst_max = st_rate_max*self.car.dt
+
+		dst = st_ref - self.car.st
+		dst = np.clip(dst, -dst_max, dst_max)
+
+		st = self.car.st + dst
+
+		self.car.set_steer(st)
 
 		return self.car.st
 		
@@ -86,7 +108,7 @@ class Navigation:
 		distance = self.distance_to_waypoint(waypoint)
 
 		# referencia proporcional a distancia
-		vref = Kv*distance
+		vref = max(Kv*distance, MIN_SPEED)
 
 		# envia referencia ao carro
 		self.car.set_vel(vref)
@@ -109,8 +131,6 @@ class Navigation:
 
 		# verifica se chegou
 		if self.waypoint_reached(waypoint, radius):
-			#self.car.set_vel(0.0)
-			#self.car.set_steer(0.0)
 			return True
 
 		# controle de direcao
@@ -156,7 +176,7 @@ if __name__ == "__main__":
 
 	waypoints = np.column_stack(
 		(data['x'], data['y'])
-	)[::2]
+	)
 
 	# ignora o primeiro ponto START
 	waypoints = waypoints[1:]
@@ -201,7 +221,7 @@ if __name__ == "__main__":
 			################################
 			reached = nav.go_to_waypoint(
 				waypoint,
-				radius=1.0,
+				radius=WAYPOINT_RADIUS,
 				Kv=0.2,
 				Kp=0.05
 			)
@@ -283,20 +303,17 @@ if __name__ == "__main__":
 			################################
 			if reached:
 
-				print(
-					f"Waypoint {i + 1} atingido!"
-				)
+				print(f"Waypoint {i + 1} atingido!")
 
 				# proximo waypoint
 				i += 1
 
-		####################################
-		# fim da rota
-		####################################
-		if i == len(waypoints):
-			print(
-				"Todos os waypoints foram atingidos!"
-			)
+			####################################
+			# fim da rota
+			####################################
+			if i == len(waypoints):
+				print("Todos os waypoints foram atingidos!")
+				break
 
 		####################################
 		# salva log
