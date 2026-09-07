@@ -78,12 +78,13 @@ class Car:
 		self.vref = 0.0
 		
 		# variaveis calculadas
-		self.p = np.zeros(2)
-		self.p_gps = None
-		self.th = 0.0
+		self.p_offset = np.array(parameters['initial_position'][:2], dtype=float)
+		self.p = self.p_offset.copy()
+		self.th = parameters['initial_position'][2]
 		self.w = 0.0
 		self.v = 0.0
 		self.a = 0.0
+		self.p_gps = None
 		
 		# comando de aceleracao
 		self.u = 0.0
@@ -247,25 +248,33 @@ class Car:
 	########################################
 	# passo para atualizar sensores
 	def step(self):
-		# tempo anterior
-		t0 = self.t
 		
-		# espera o periodo de delta t
-		elapsed_time = self.get_time() - self.tinit - t0
-		time.sleep(np.max([0.0, self.sample_rate - elapsed_time]))
-		
-		# condicoes iniciais
-		self.get_states()
-		
-		# atualiza amostragem
-		self.dt = self.t - t0
-		
-		# se esta dando re, avise
-		if self.gear == servos.Gear.REVERSE:
-			self.bz.beep(0.3, silence=0.5)
-		
-		# salva trajetoria
-		self.save_traj()
+		try:
+			# tempo anterior
+			t0 = self.t
+			
+			# espera o periodo de delta t
+			elapsed_time = self.get_time() - self.tinit - t0
+			time.sleep(np.max([0.0, self.sample_rate - elapsed_time]))
+			
+			# condicoes iniciais
+			self.get_states()
+			
+			# atualiza amostragem
+			self.dt = self.t - t0
+			
+			# se esta dando re, avise
+			if self.gear == servos.Gear.REVERSE:
+				self.bz.beep(0.3, silence=0.5)
+			
+			# salva trajetoria
+			self.save_traj()
+			
+			return True
+
+		except KeyboardInterrupt:
+			print("\nInterrupcao solicitada pelo usuario.")
+			return False
 		
 	########################################
 	# salva a trajetoria
@@ -313,7 +322,8 @@ class Car:
 				p_gps = self.gps.get_xy(position)
 
 				if p_gps is not None:
-					self.p_gps = np.array(p_gps)
+					# soma offset de posicao relativa
+					self.p_gps = self.p_offset + np.array(p_gps)
 
 					# fusao sensorial simples
 					K = 0.1

@@ -9,6 +9,9 @@
 ########################################
 import numpy as np
 
+MIN_SPEED = 1.0
+WAYPOINT_RADIUS = 1.0
+
 ########################################
 # Navegacao
 ########################################
@@ -69,7 +72,7 @@ class Navigation:
 	########################################
 	# controla orientacao ate waypoint
 	########################################
-	def steer_to_waypoint(self, waypoint, Kp=1.0):
+	def steer_to_waypoint2(self, waypoint, Kp=0.2):
 
 		error = self.heading_error(waypoint)
 
@@ -77,16 +80,35 @@ class Navigation:
 
 		return self.car.st
 		
+	def steer_to_waypoint(self, waypoint, Kp=0.2):
+
+		error = self.heading_error(waypoint)
+
+		st_ref = Kp*error
+
+		# limite da taxa de esterçamento
+		st_rate_max = np.deg2rad(20.0)
+		dst_max = st_rate_max*self.car.dt
+
+		dst = st_ref - self.car.st
+		dst = np.clip(dst, -dst_max, dst_max)
+
+		st = self.car.st + dst
+
+		self.car.set_steer(st)
+
+		return self.car.st
+		
 	########################################
 	# controla velocidade ate waypoint
 	########################################
-	def speed_to_waypoint(self, waypoint, Kv=0.2):
+	def speed_to_waypoint(self, waypoint, Kv=0.1):
 
 		# distancia ate o waypoint
 		distance = self.distance_to_waypoint(waypoint)
 
 		# referencia proporcional a distancia
-		vref = Kv*distance
+		vref = max(Kv*distance, MIN_SPEED)
 
 		# envia referencia ao carro
 		self.car.set_vel(vref)
@@ -102,7 +124,6 @@ class Navigation:
 
 		return distance <= radius
 		
-	
 	########################################
 	# navega ate waypoint
 	########################################
@@ -110,8 +131,6 @@ class Navigation:
 
 		# verifica se chegou
 		if self.waypoint_reached(waypoint, radius):
-			self.car.set_vel(0.0)
-			self.car.set_steer(0.0)
 			return True
 
 		# controle de direcao
@@ -127,58 +146,198 @@ class Navigation:
 ########################################
 if __name__ == "__main__":
 
+	import matplotlib.pyplot as plt
+
 	try:
 		from .car import Car
 	except ImportError:
 		from car import Car
 
+	########################################
 	# parametros
-	parameters = {
-		'ts'                   : 60.0,
-		'save'                 : False,
-		'logfile'              : 'logs/',
-		'camera'               : False,
-		'ultrasonic_steering'  : True,
-		'us_buzzer'            : True,
-	}
+	########################################
+	parameters = {	
+				'ts'					: 300.0, 	# tempo da execucao
+				'save'					: True,		# salva dados da trajetoria
+				'logfile'				: 'logs/',	# log file
+				'camera'				: False,	# habilitar camera e thread de visao
+				'ultrasonic_steering' 	: False,	# mover ultrasom com estercamento
+				'us_buzzer'				: False,	# aviso sonoro para objetos proximos
+				'initial_position'		: [0, 0, np.deg2rad(0)]	# (x, y, theta) configuracao inicial
+			}
 
-	# waypoint local [m]
-	waypoint = (10.0, 5.0)
+	########################################
+	# carrega waypoints
+	########################################
+	data = np.genfromtxt(
+		'../waypoints/final_dubins_path.csv',
+		delimiter=',',
+		names=True,
+		dtype=None,
+		encoding='utf-8'
+	)
 
+	waypoints = np.column_stack(
+		(data['x'], data['y'])
+	)
+	# ignora o primeiro ponto START
+	waypoints = waypoints[1:]
+
+	########################################
 	# cria carro e navegacao
+	########################################
+	parameters['initial_position'] = [
+										data['x'][0],
+										data['y'][0],
+										data['theta'][0]
+									]
+									
 	car = Car(parameters)
 	nav = Navigation(car)
 
+	########################################
+	# grafico
+	########################################
+	traj_x = []
+	traj_y = []
+
+	plt.ion()
+	plt.figure()
+
+	########################################
+	# inicia missao
+	########################################
 	try:
-		# inicia missao
+
 		car.start_mission()
 
-		while car.t <= parameters['ts']:
+		# waypoint atual
+		i = 0
 
-			# atualiza estados
+		while (car.t <= parameters['ts'] and i < len(waypoints)):
+
+			################################
+			# atualiza estados do carro
+			################################
 			car.step()
 
-			# navega
-			reached = nav.go_to_waypoint(waypoint)
+			# waypoint atual
+			waypoint = waypoints[i]
 
-			# mostra estados
-			print(
+			################################
+			# navegacao
+			################################
+			reached = nav.go_to_waypoint(
+				waypoint,
+				radius=WAYPOINT_RADIUS,
+				Kv=0.2,
+				Kp=0.05
+			)
+
+			################################
+			# salva trajetoria para plot
+			################################
+			traj_x.append(car.p[0])
+			traj_y.append(car.p[1])
+
+			################################
+			# grafico
+			################################
+			plt.clf()
+
+			# caminho dos waypoints
+			plt.plot(
+				waypoints[:, 0],
+				waypoints[:, 1],
+				'--',
+				label='Waypoints'
+			)
+
+			# trajetoria realizada
+			plt.plot(
+				traj_x,
+				traj_y,
+				'-',
+				label='Trajetoria'
+			)
+
+			# posicao atual do carro
+			plt.plot(
+				car.p[0],
+				car.p[1],
+				'o',
+				markersize=10,
+				label='Carro'
+			)
+
+			# waypoint atual
+			plt.plot(
+				waypoint[0],
+				waypoint[1],
+				'x',
+				markersize=12,
+				label='Waypoint atual'
+			)
+
+			plt.xlabel('x [m]')
+			plt.ylabel('y [m]')
+			plt.title(
+				f'Waypoint {i + 1}/{len(waypoints)}'
+			)
+
+			plt.axis('equal')
+			plt.grid()
+			plt.legend()
+
+			plt.show(block=False)
+			plt.pause(0.01)
+
+			################################
+			# informacoes no terminal
+			################################
+			'''print(
+				f"WP: {i + 1}/{len(waypoints)} | "
 				f"Pos: ({car.p[0]:+.2f}, {car.p[1]:+.2f}) m | "
 				f"Dist: {nav.distance_to_waypoint(waypoint):.2f} m | "
-				f"Erro: {np.rad2deg(nav.heading_error(waypoint)):+.1f} deg | "
+				f"Erro: "
+				f"{np.rad2deg(nav.heading_error(waypoint)):+.1f} deg | "
 				f"Vel: {car.v:+.2f} m/s | "
 				f"Ref: {car.vref:+.2f} m/s | "
 				f"Steer: {np.rad2deg(car.st):+.1f} deg"
-			)
+			)'''
 
-			# chegou
+			################################
+			# chegou ao waypoint
+			################################
 			if reached:
-				print("Waypoint atingido!")
+
+				print(f"Waypoint {i + 1} atingido!")
+
+				# proximo waypoint
+				i += 1
+
+			####################################
+			# fim da rota
+			####################################
+			if i == len(waypoints):
+				print("Todos os waypoints foram atingidos!")
 				break
 
-		# salva
+		####################################
+		# salva log
+		####################################
 		if parameters['save']:
 			car.save()
 
+	except KeyboardInterrupt:
+		print("\nMissao interrompida pelo usuario.")
+	
 	finally:
+
 		car.close()
+
+		####################################
+		# mantem figura aberta
+		####################################
+		plt.ioff()
+		plt.show()
