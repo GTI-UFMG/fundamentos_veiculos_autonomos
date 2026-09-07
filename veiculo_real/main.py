@@ -81,8 +81,9 @@ if __name__ == "__main__":
 				'save'					: True,		# salva dados da trajetoria
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# habilitar camera e thread de visao
-				'ultrasonic_steering' 	: False,		# mover ultrasom com estercamento
-				'us_buzzer'				: False,		# aviso sonoro para objetos proximos
+				'ultrasonic_steering' 	: False,	# mover ultrasom com estercamento
+				'us_buzzer'				: False,	# aviso sonoro para objetos proximos
+				'initial_position'		: [0, 0, np.deg2rad(0)]	# (x, y, theta) configuracao inicial
 			}
 	
 	# cria comunicacao com o carrinho
