@@ -181,25 +181,31 @@ class Car:
 	
 	########################################
 	def step(self):
-		
-		# passo de simulacao
-		self.client.step()
-		
-		# tempo anterior
-		t0 = self.t
-		
-		# condicoes iniciais
-		self.get_states()
-		
-		# atualiza amostragem
-		self.dt = self.t - t0
-		
-		# se esta dando re, avise
-		if self.gear == -1:
-			self.beep(0.3, silence=1.0)
-		
-		# salva trajetoria
-		self.save_traj()
+		try:
+			# passo de simulacao
+			self.client.step()
+
+			# tempo anterior
+			t0 = self.t
+
+			# atualiza estados
+			self.get_states()
+
+			# atualiza amostragem
+			self.dt = self.t - t0
+
+			# se esta dando re, avise
+			if self.gear == -1:
+				self.beep(0.3, silence=1.0)
+
+			# salva trajetoria
+			self.save_traj()
+
+			return True
+
+		except KeyboardInterrupt:
+			print("\nInterrupcao solicitada pelo usuario.")
+			return False
 		
 	########################################
 	# salva a trajetoria
