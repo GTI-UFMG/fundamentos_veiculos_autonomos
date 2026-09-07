@@ -387,11 +387,11 @@ class Car:
 	# retorna aceleracao
 	def get_accel(self):
 
-		if self.dt == 0.0:
-			return 0.0
-
-		# aceleracao pelo encoder
-		a_model = (self.v - self.v_ant)/self.dt
+		if self.dt > 0.0:
+			# aceleracao pelo encoder
+			a_model = (self.v - self.v_ant)/self.dt
+		else:
+			a_model = 0.0
 
 		# aceleracao medida pela IMU
 		a_x, _, _ = self.imu.get_accel()
@@ -407,7 +407,7 @@ class Car:
 	
 	########################################
 	# seta referencia de controle
-	def set_ref(self, vref):
+	def _set_ref(self, vref):
 		# em caso de emergencia, pare
 		if self.emergencia:
 			self.vref = 0.0
@@ -436,7 +436,7 @@ class Car:
 		Kd = 0.2
 
 		# define referencia e marcha
-		self.set_ref(vref)
+		self._set_ref(vref)
 
 		# controla magnitude da velocidade
 		vref_abs = abs(self.vref)
