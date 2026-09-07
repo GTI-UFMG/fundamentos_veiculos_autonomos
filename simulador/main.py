@@ -98,6 +98,9 @@ if __name__ == "__main__":
 		# salva
 		if parameters['save']:
 			car.save()
-			
+	
+	except KeyboardInterrupt:
+		print("\nMissao interrompida pelo usuario.")
+		
 	finally:
 		car.close()
