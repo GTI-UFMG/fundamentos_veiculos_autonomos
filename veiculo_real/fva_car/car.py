@@ -86,6 +86,13 @@ class Car:
 		self.a = 0.0
 		self.p_gps = None
 		
+		# monitorar calibracao
+		self.a_model = 0.0
+		self.a_x = 0.0
+		self.w_model = 0.0
+		self.w_imu = 0.0
+		self.yaw_mag = 0.0
+		
 		# comando de aceleracao
 		self.u = 0.0
 		# comando de estercamento
@@ -319,12 +326,12 @@ class Car:
 
 		# corrige com bussola somente se houver GPS
 		if self.gps is not None:
-			_, _, yaw_mag = self.imu.get_euler(degrees=False)
+			_, _, self.yaw_mag = self.imu.get_euler(degrees=False)
 
-			if yaw_mag is not None:
+			if self.yaw_mag is not None:
 				K = 0.05
 				# erro angular corretamente embrulhado
-				error = np.arctan2(np.sin(yaw_mag - yaw), np.cos(yaw_mag - yaw))
+				error = np.arctan2(np.sin(self.yaw_mag - yaw), np.cos(self.yaw_mag - yaw))
 				yaw += K*error
 
 		# mantem entre 0 e 2*pi
@@ -346,15 +353,15 @@ class Car:
 			vf = self.v
 
 		# velocidade angular pelo modelo cinematico
-		w_model = (vf / CAR['L']) * np.tan(self.st)
+		self.w_model = (vf / CAR['L']) * np.tan(self.st)
 
 		# velocidade angular medida pela IMU
-		_, _, gz = self.imu.get_gyro()
-		w_imu = np.deg2rad(gz)
+		_, _, g_z = self.imu.get_gyro()
+		self.w_imu = np.deg2rad(g_z)
 
 		# fusao modelo + IMU
 		K = 0.8
-		w = (1.0 - K)*w_model + K*w_imu
+		w = (1.0 - K)*self.w_model + K*self.w_imu
 
 		# filtra velocidade angular
 		wf = self.w_filt.filter(w)
@@ -367,16 +374,16 @@ class Car:
 
 		if self.dt > 0.0:
 			# aceleracao pelo encoder
-			a_model = (self.v - self.v_ant)/self.dt
+			self.a_model = (self.v - self.v_ant)/self.dt
 		else:
-			a_model = 0.0
+			self.a_model = 0.0
 
 		# aceleracao medida pela IMU
-		a_x, _, _ = self.imu.get_accel()
+		self.a_x, _, _ = self.imu.get_accel()
 
 		# fusao sensorial
 		K = 0.2
-		a = (1.0 - K)*a_model + K*a_x
+		a = (1.0 - K)*self.a_model + K*self.a_x
 
 		# filtra
 		af = self.a_filt.filter(a)
@@ -504,7 +511,8 @@ class Car:
 	def save_traj(self):
 		
 		# dados (COLOCAR APENAS ESCALARES)
-		data = {	't'     : self.t, 
+		data = {	
+					't'     : self.t, 
 					'x'     : self.p[0], 
 					'y'     : self.p[1],
 					'v'     : self.v,
@@ -513,6 +521,11 @@ class Car:
 					'th'    : self.th,
 					'w'     : self.w,
 					'u'     : self.u,
+					'a_model'	: self.a_model,
+					'a_x'		: self.a_x,
+					'w_model'	: self.w_model,
+					'w_imu'   	: self.w_imu,
+					'yaw_mag'	: self.yaw_mag,
 				}
 				
 		# se ja iniciou as trajetorias
@@ -611,13 +624,14 @@ if __name__ == "__main__":
 	
 	# Globais
 	parameters = {	
-				'ts'					: 30.0,		# tempo da execucao
-				'save'					: False,	# salvar trajetoria
+				'ts'					: 30.0, 	# tempo da execucao
+				'save'					: True,		# salva dados da trajetoria
 				'logfile'				: 'logs/',	# log file
-				'camera'				: False,	# usar camera
-				'ultrasonic_steering' 	: True,		# mover ultrasom com estercamento
+				'camera'				: False,	# habilitar camera e thread de visao
+				'ultrasonic_steering' 	: False,	# mover ultrasom com estercamento
 				'us_buzzer'				: True,	# aviso sonoro para objetos proximos
-				}
+				'initial_position'		: [0, 0, np.deg2rad(0)]	# (x, y, theta) configuracao inicial
+			}
 	
 	# cria comunicacao com o carrinho
 	car = Car(parameters)
