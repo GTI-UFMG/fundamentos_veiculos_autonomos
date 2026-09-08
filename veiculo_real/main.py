@@ -102,18 +102,18 @@ if __name__ == "__main__":
 
 			# telemetria para plots remotos
 			print(
-					f"DATA,"
-					f"{car.t:.3f},"
-					f"{car.p[0]:.3f},"
-					f"{car.p[1]:.3f},"
-					f"{car.v:.3f},"
-					f"{car.vref:.3f},"
-					f"{car.a:.3f},"
-					f"{car.u:.3f},"
-					f"{car.w:.3f},"
-					f"{car.th:.3f},"
-					flush=True
-				)
+				f"DATA,"
+				f"{car.t:.3f},"
+				f"{car.p[0]:.3f},"
+				f"{car.p[1]:.3f},"
+				f"{car.v:.3f},"
+				f"{car.vref:.3f},"
+				f"{car.a:.3f},"
+				f"{car.u:.3f},"
+				f"{car.w:.3f},"
+				f"{car.th:.3f}",
+				flush=True
+			)
 
 			# atualiza grafico aproximadamente 1 Hz
 			if time.monotonic() - t_plot >= 1.0:
