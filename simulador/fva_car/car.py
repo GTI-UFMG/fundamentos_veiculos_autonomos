@@ -206,27 +206,6 @@ class Car:
 		except KeyboardInterrupt:
 			print("\nInterrupcao solicitada pelo usuario.")
 			return False
-		
-	########################################
-	# salva a trajetoria
-	def save_traj(self):
-		
-		# dados
-		data = {	't'     : self.t, 
-					'p'     : self.p, 
-					'v'     : self.v,
-					'a'		: self.a,
-					'vref'  : self.vref,
-					'th'    : self.th,
-					'w'     : self.w,
-					'u'     : self.u}
-				
-		# se ja iniciou as trajetorias
-		try:
-			self.traj.append(data)
-		# se for a primeira vez
-		except:
-			self.traj = [data]
 			
 	########################################
 	# retorna tempo da simulacao no Coppelia
@@ -311,7 +290,7 @@ class Car:
 		
 	########################################
 	# seta referencia de controle
-	def set_ref(self, vref):
+	def _set_ref(self, vref):
 
 		self.vref = self.vref_filt.filter(vref)
 		self.vref = np.clip(self.vref, -CAR['VELMAX'], CAR['VELMAX'])
@@ -335,7 +314,7 @@ class Car:
 		Kd = 2.5
 		
 		# define referencia e marcha
-		self.set_ref(vref)
+		self._set_ref(vref)
 		
 		# controla magnitude da velocidade
 		vref_abs = abs(self.vref)
@@ -356,15 +335,14 @@ class Car:
 		# limita aceleracao
 		self.u = np.clip(u, -CAR['ACCELMAX'], CAR['ACCELMAX'])
 		
-		# magnitude da velocidade
-		v_abs = abs(self.v)
+		# atrito sempre contrario ao movimento
+		F_friction = -np.sign(self.v)*CAR['MASS']*CAR['GRAV']*CAR['MI']
 
-		# compensacao da forca de atrito
-		s = np.tanh(10.0*v_abs)
-		F_friction = s*CAR['MASS']*CAR['GRAV']*CAR['MI']
-
+		# força de controle
+		F_control = CAR['MASS']*self.u
+		
 		# forca longitudinal
-		F = F_friction + CAR['MASS']*self.u
+		F = F_friction + F_control
 		
 		# torque
 		GAMMA = 0.63
@@ -472,28 +450,39 @@ class Car:
 		return dist, valid
 	
 	########################################
-	# save traj em csv		
+	# salva a trajetoria
+	def save_traj(self):
+		
+		# dados (COLOCAR APENAS ESCALARES)
+		data = {	't'     : self.t, 
+					'x'     : self.p[0], 
+					'y'     : self.p[1],
+					'v'     : self.v,
+					'a'		: self.a,
+					'vref'  : self.vref,
+					'th'    : self.th,
+					'w'     : self.w,
+					'u'     : self.u,
+				}
+				
+		# se ja iniciou as trajetorias
+		try:
+			self.traj.append(data)
+		# se for a primeira vez
+		except:
+			self.traj = [data]
+		
+	########################################
+	# salva trajetoria em csv
 	def save(self):
+
 		filename = os.path.join(self.logfile, 'car.csv')
 
-		data = np.array([
-			[
-				traj['t'],
-				traj['p'][0],
-				traj['p'][1],
-				traj['v'],
-				traj['a'],
-				traj['vref'],
-				traj['th'],
-				traj['w'],
-				traj['u']
-			]
-			for traj in self.traj
-		])
+		header = ','.join(self.traj[0].keys())
 
-		header = 't,x,y,v,a,vref,th,w,u'
+		data = np.array([list(traj.values()) for traj in self.traj])
 
-		np.savetxt(filename, data, delimiter=',', header=header,  comments='')
+		np.savetxt(filename, data, delimiter=',', header=header, comments='')
 			
 	########################################
 	# dispara um ou mais beeps
@@ -521,22 +510,32 @@ class Car:
 			time.sleep(silence)
 			
 	########################################
-	# termina a missao
+	# termina a missao		
 	def stop_mission(self):
-		
+
 		# termina parado
 		self.set_u(-CAR['ACCELMAX'])
 		self.set_steer(0.0)
-		
-		# espera ate parar
+
+		# tenta parar por no maximo alguns segundos
+		t0 = self.get_time()
 		while abs(self.v) > 0.1:
 			self.step()
+			
+			print(
+					f"Parando... gear={self.gear}, "
+					f"v={self.v:.3f}, u={self.u:.3f}"
+				)
+				
+			# nao espera para sempre
+			if self.get_time() - t0 > 2.0:
+				break
 
 		# aviso sonoro de fim
 		self.beep([0.2] * 5, silence=0.2)
 		time.sleep(1.0)
-		
-		# stop simulador
+
+		# para simulador
 		self.sim.stopSimulation()
 		
 	########################################
@@ -557,3 +556,56 @@ class Car:
 		print("\033[33m##############################\033[0m", flush=True)
 		print("\033[33mMissao terminada!\033[0m", flush=True)
 		print("\033[33m##############################\033[0m", flush=True)
+
+########################################
+# main teste
+########################################
+if __name__ == "__main__":
+				
+	# Globais
+	parameters = {	
+					'ts'		: 5.0, 			# tempo da simulacao
+					'save'		: True,
+					'logfile'	: 'logs/',
+					'beep'		: True,
+				}
+	
+	# cria comunicacao com o carrinho
+	car = Car(parameters)
+	
+	try:
+		car.start_mission()
+		
+		# testa leitura
+		t0 = time.monotonic()
+		while (time.monotonic() - t0) <= parameters['ts']:
+			t = time.monotonic() - t0
+			
+			# le sensores
+			car.step()
+			
+			# le ultrasom
+			dist, valid = car.get_distance()
+			# seta torque do motor
+			if valid and dist > 0.10:
+				if t < parameters['ts']/2:
+					car.set_vel(0.7)
+				else:
+					car.set_vel(-0.7)
+			else:
+				car.set_vel(0.0)
+			#
+			print(
+				f"Vel: {car.v:+.2f} m/s | "
+				f"Ref: {car.vref:+.2f} m/s "
+			)
+				
+			# seta estercamento junto com ultrasom
+			car.set_steer(np.deg2rad(10.0)*np.sin(0.5*t))
+
+		# salva os dados coletados
+		if parameters['save']:
+			car.save()
+		
+	finally:
+		car.close()
