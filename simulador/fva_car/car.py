@@ -521,12 +521,6 @@ class Car:
 		t0 = self.get_time()
 		while abs(self.v) > 0.1:
 			self.step()
-			
-			print(
-					f"Parando... gear={self.gear}, "
-					f"v={self.v:.3f}, u={self.u:.3f}"
-				)
-				
 			# nao espera para sempre
 			if self.get_time() - t0 > 2.0:
 				break
