@@ -15,17 +15,10 @@ import threading
 import time
 
 MAIN_VEL = 0.7
-refste = 0.0
-frame = None
-stop_event = threading.Event()
 
 ########################################
 # thread de visao
-def vision_func():
-
-	global car
-	global refste
-	global frame
+def vision_func(car, vision_data, stop_event):
 
 	W, H = car.cam.get_resolution()
 
@@ -35,16 +28,22 @@ def vision_func():
 		frame = car.get_image(gray=True)
 
 		# detecta aruco
-		frame, point = car.cam.detect_aruco(frame, aruco_id=23)
+		frame, point = car.cam.detect_aruco(
+			frame,
+			aruco_id=23
+		)
+
+		# disponibiliza imagem para o main
+		vision_data["frame"] = frame
 
 		if point is None:
 			continue
 
 		# esterçamento aponta para o aruco
 		cx = point[0] - W/2
-		refste = -np.deg2rad(20.0*cx/(W/2))
 
-
+		vision_data["refste"] = -np.deg2rad(20.0*cx/(W/2))
+		
 ########################################
 # main
 ########################################
@@ -61,7 +60,10 @@ if __name__ == "__main__":
 	}
 
 	car = Car(parameters)
+	
+	vision_data = {"refste": 0.0, "frame": None}
 
+	stop_event = threading.Event()
 	thread_vision = None
 
 	try:
@@ -70,9 +72,10 @@ if __name__ == "__main__":
 		# inicia visao somente se solicitada
 		if parameters['camera']:
 			thread_vision = threading.Thread(
-				target=vision_func,
-				daemon=True
-			)
+												target=vision_func,
+												args=(car, vision_data, stop_event),
+												daemon=True
+											)
 			thread_vision.start()
 
 		if parameters['camera']:
@@ -89,7 +92,7 @@ if __name__ == "__main__":
 				break
 
 			# direcao
-			car.set_steer(refste)
+			car.set_steer(vision_data["refste"])
 
 			# ultrassom
 			dist, valid = car.get_distance()
@@ -118,10 +121,13 @@ if __name__ == "__main__":
 			# atualiza grafico aproximadamente 1 Hz
 			if time.monotonic() - t_plot >= 1.0:
 
-				if parameters['camera'] and frame is not None:
-					plt.cla()
-					plt.imshow(frame, cmap='gray')
-					plt.pause(0.001)
+				if parameters['camera']:
+					frame = vision_data["frame"]
+
+					if frame is not None:
+						plt.cla()
+						plt.imshow(frame, cmap='gray')
+						plt.pause(0.001)
 
 				t_plot = time.monotonic()
 
@@ -132,6 +138,7 @@ if __name__ == "__main__":
 	finally:
 		# termina a thread de visao
 		stop_event.set()
+
 		if thread_vision is not None:
 			thread_vision.join(timeout=1.0)
 
