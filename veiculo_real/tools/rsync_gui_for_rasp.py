@@ -319,6 +319,38 @@ class RsyncGUI(tk.Tk):
 		# ----------------------------
 		# painel do grafico
 		plot_frame = ttk.Frame(bottom)
+		
+		# seletor do grafico
+		plot_select = ttk.Frame(plot_frame)
+		plot_select.pack(fill="x", pady=(0, 5))
+
+		ttk.Label(
+			plot_select,
+			text="Gráfico:"
+		).pack(side="left", padx=(0, 5))
+
+		self.plot_var = tk.StringVar(value="Velocidade")
+
+		self.plot_combo = ttk.Combobox(
+			plot_select,
+			textvariable=self.plot_var,
+			state="readonly",
+			values=[
+				"Velocidade",
+				"Aceleração / Controle",
+				"Velocidade angular",
+				"Orientação",
+				"Trajetória XY"
+			],
+			width=24
+		)
+
+		self.plot_combo.pack(side="left")
+		
+		self.plot_combo.bind(
+			"<<ComboboxSelected>>",
+			lambda event: self.update_plot()
+		)
 
 		self.fig = Figure(figsize=(6, 4), dpi=100)
 		self.ax = self.fig.add_subplot(111)
@@ -713,18 +745,31 @@ class RsyncGUI(tk.Tk):
 
 						if line.startswith("DATA,"):
 							try:
-								_, t, v, vref = line.split(",")
+								_, t, x, y, v, vref, a, u, w, th = line.split(",")
 
 								if name not in self.telemetry:
 									self.telemetry[name] = {
 										"t": [],
+										"x": [],
+										"y": [],
 										"v": [],
-										"vref": []
+										"vref": [],
+										"a": [],
+										"u": [],
+										"w": [],
+										"th": []
 									}
 
 								self.telemetry[name]["t"].append(float(t))
+								self.telemetry[name]["x"].append(float(x))
+								self.telemetry[name]["y"].append(float(y))
 								self.telemetry[name]["v"].append(float(v))
 								self.telemetry[name]["vref"].append(float(vref))
+								self.telemetry[name]["a"].append(float(a))
+								self.telemetry[name]["u"].append(float(u))
+								self.telemetry[name]["w"].append(float(w))
+								self.telemetry[name]["th"].append(float(th))
+
 								self.after(0, self.update_plot)
 
 							except ValueError:
@@ -861,34 +906,97 @@ class RsyncGUI(tk.Tk):
 		self.data_log.insert("end", text + "\n")
 		self.data_log.see("end")
 		self.data_log.configure(state="disabled")
-		
-	# =========================
-	def update_plot(self):
 
-		if not self.telemetry:
-			return
+	# ----------------------------
+	def update_plot(self):
 
 		self.ax.clear()
 
+		plot_type = self.plot_var.get()
+
+		# configura os eixos mesmo sem dados
+		if plot_type == "Velocidade":
+			self.ax.set_xlabel("Tempo [s]")
+			self.ax.set_ylabel("Velocidade [m/s]")
+
+		elif plot_type == "Aceleração / Controle":
+			self.ax.set_xlabel("Tempo [s]")
+			self.ax.set_ylabel("a / u [m/s²]")
+
+		elif plot_type == "Velocidade angular":
+			self.ax.set_xlabel("Tempo [s]")
+			self.ax.set_ylabel("Velocidade angular [rad/s]")
+
+		elif plot_type == "Orientação":
+			self.ax.set_xlabel("Tempo [s]")
+			self.ax.set_ylabel("Orientação [rad]")
+
+		elif plot_type == "Trajetória XY":
+			self.ax.set_xlabel("x [m]")
+			self.ax.set_ylabel("y [m]")
+			self.ax.set_aspect("equal", adjustable="datalim")
+
+		# plota os dados, caso existam
 		for name, data in self.telemetry.items():
-			self.ax.plot(
-				data["t"],
-				data["v"],
-				label=f"{name.upper()} - v"
-			)
 
-			self.ax.plot(
-				data["t"],
-				data["vref"],
-				"--",
-				label=f"{name.upper()} - vref"
-			)
+			if plot_type == "Velocidade":
 
-		self.ax.set_xlabel("Tempo [s]")
-		self.ax.set_ylabel("Velocidade [m/s]")
+				self.ax.plot(
+					data["t"],
+					data["v"],
+					label=f"{name.upper()} - v"
+				)
+
+				self.ax.plot(
+					data["t"],
+					data["vref"],
+					"--",
+					label=f"{name.upper()} - vref"
+				)
+
+			elif plot_type == "Aceleração / Controle":
+
+				self.ax.plot(
+					data["t"],
+					data["a"],
+					label=f"{name.upper()} - a"
+				)
+
+				self.ax.plot(
+					data["t"],
+					data["u"],
+					"--",
+					label=f"{name.upper()} - u"
+				)
+
+			elif plot_type == "Velocidade angular":
+
+				self.ax.plot(
+					data["t"],
+					data["w"],
+					label=f"{name.upper()} - w"
+				)
+
+			elif plot_type == "Orientação":
+
+				self.ax.plot(
+					data["t"],
+					data["th"],
+					label=f"{name.upper()} - θ"
+				)
+
+			elif plot_type == "Trajetória XY":
+
+				self.ax.plot(
+					data["x"],
+					data["y"],
+					label=name.upper()
+				)
+
+		if self.telemetry:
+			self.ax.legend()
+
 		self.ax.grid(True)
-		self.ax.legend()
-
 		self.canvas.draw_idle()
 	
 # =========================
