@@ -275,28 +275,6 @@ class Car:
 		except KeyboardInterrupt:
 			print("\nInterrupcao solicitada pelo usuario.")
 			return False
-		
-	########################################
-	# salva a trajetoria
-	def save_traj(self):
-		
-		# dados
-		data = {	't'     : self.t, 
-					'p'     : self.p, 
-					'v'     : self.v,
-					'a'		: self.a,
-					'vref'  : self.vref,
-					'th'    : self.th,
-					'w'     : self.w,
-					'u'     : self.u,
-				}
-				
-		# se ja iniciou as trajetorias
-		try:
-			self.traj.append(data)
-		# se for a primeira vez
-		except:
-			self.traj = [data]
 			
 	########################################
 	# retorna tempo do sistema
@@ -522,28 +500,39 @@ class Car:
 		return d , valid
 	
 	########################################
-	# save traj em csv		
+	# salva a trajetoria
+	def save_traj(self):
+		
+		# dados (COLOCAR APENAS ESCALARES)
+		data = {	't'     : self.t, 
+					'x'     : self.p[0], 
+					'y'     : self.p[1],
+					'v'     : self.v,
+					'a'		: self.a,
+					'vref'  : self.vref,
+					'th'    : self.th,
+					'w'     : self.w,
+					'u'     : self.u,
+				}
+				
+		# se ja iniciou as trajetorias
+		try:
+			self.traj.append(data)
+		# se for a primeira vez
+		except:
+			self.traj = [data]
+		
+	########################################
+	# salva trajetoria em csv
 	def save(self):
+
 		filename = os.path.join(self.logfile, 'car.csv')
 
-		data = np.array([
-			[
-				traj['t'],
-				traj['p'][0],
-				traj['p'][1],
-				traj['v'],
-				traj['a'],
-				traj['vref'],
-				traj['th'],
-				traj['w'],
-				traj['u']
-			]
-			for traj in self.traj
-		])
+		header = ','.join(self.traj[0].keys())
 
-		header = 't,x,y,v,a,vref,th,w,u'
+		data = np.array([list(traj.values()) for traj in self.traj])
 
-		np.savetxt(filename, data, delimiter=',', header=header,  comments='')
+		np.savetxt(filename, data, delimiter=',', header=header, comments='')
 	
 	########################################
 	# termina a missao
@@ -556,10 +545,14 @@ class Car:
 		self.set_u(-CAR['ACCELMAX'])
 		self.set_steer(0.0)
 		
-		# espera ate parar
+		# tenta parar por no maximo alguns segundos
+		t0 = self.get_time()
 		while abs(self.v) > 0.1:
 			self.step()
 			time.sleep(0.1)
+			# nao espera para sempre
+			if self.get_time() - t0 > 3.0:
+				break
 		
 		# sinaliza fim
 		time.sleep(1.0)
