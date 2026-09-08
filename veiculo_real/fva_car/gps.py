@@ -12,9 +12,31 @@ import re
 import numpy as np
 
 ########################################
-# Globais
+# Instalacao - GPS via Android/ADB
+#
+# 1) Instalar dependencias:
+#    sudo apt update
+#    sudo apt install adb python3-numpy
+#
+# 2) Adicionar regra udev para celulares Samsung:
+#    sudo nano /etc/udev/rules.d/51-android.rules
+#
+#    Adicionar:
+#    SUBSYSTEM=="usb", ATTR{idVendor}=="04e8", MODE="0660", GROUP="plugdev"
+#
+# 3) Aplicar a regra:
+#    sudo udevadm control --reload-rules
+#    sudo udevadm trigger
+#
+# 4) Desconectar e reconectar o celular.
+#    Manter a Depuracao USB habilitada e autorizar
+#    a Raspberry Pi no celular quando solicitado.
+#
+# Teste:
+#    adb devices
+#
+# O procedimento de instalacao e feito apenas uma vez.
 ########################################
-
 
 ########################################
 # classe para usar GPS de celulares Android
