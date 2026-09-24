@@ -1,5 +1,13 @@
+# -*- coding: utf-8 -*-
 #!/usr/bin/env python3
-# rsync_gui_with_default_pass.py
+########################################
+# Disciplina: Topicos em Engenharia de Controle e Automacao IV (ENG075): 
+# Fundamentos de Veiculos Autonomos - 2026/2
+# Professores: Armando Alves Neto e Leonardo A. Mozelli
+# Cursos: Engenharia de Controle e Automacao
+# DELT - Escola de Engenharia
+# Universidade Federal de Minas Gerais
+########################################
 # GUI Tkinter para envio de arquivos e execução remota em múltiplas Raspberry Pis,
 # com senha SSH padrão (DEFAULT_PASS) pré-preenchida no campo.
 
@@ -13,9 +21,9 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-# =========================
+########################################
 # Configurações (ajuste aqui)
-# =========================
+########################################
 SSH_USER = "alunos"
 DEFAULT_PASS = "fva2023"  # <-- coloque aqui a senha padrão desejada, ex: "rasp123"
 DEFAULT_DEST = "/home/alunos/Desktop/fva"
@@ -35,9 +43,9 @@ COLORS = {
 
 CAR_ICON = "🚗 "
 
-# =========================
+########################################
 # Utilitários de rede
-# =========================
+########################################
 def normalize_mac(mac: str) -> str:
 	mac = mac.strip().lower()
 	mac = re.sub(r'[^0-9a-f]', '', mac)
@@ -45,6 +53,7 @@ def normalize_mac(mac: str) -> str:
 		raise ValueError(f"MAC inválido: {mac}")
 	return ':'.join(mac[i:i+2] for i in range(0, 12, 2))
 
+########################################
 def parse_ip_neigh():
 	try:
 		out = subprocess.check_output(["ip", "neigh"], text=True)
@@ -57,6 +66,7 @@ def parse_ip_neigh():
 			entries.append((m.group(1), m.group(2)))
 	return entries
 
+########################################
 def find_ip_by_mac_arptable(target_mac: str):
 	try:
 		target_mac = normalize_mac(target_mac)
@@ -75,9 +85,9 @@ def find_ip_by_mac_arptable(target_mac: str):
 			return m.group(1)
 	return None
 
-# =========================
+########################################
 # Interface Principal
-# =========================
+########################################
 class RsyncGUI(tk.Tk):
 	def __init__(self):
 		super().__init__()
@@ -109,12 +119,12 @@ class RsyncGUI(tk.Tk):
 		style.configure("TCheckbutton", font=("Arial", 14))
 		style.configure("TNotebook.Tab", font=("Arial", 14, "bold"), padding=[12, 8])
 
-	# ----------------------------
+	########################################
 	def _build_ui(self):
 
-		# =========================
+		########################################
 		# Cabecalho
-		# =========================
+		########################################
 		header = ttk.Frame(self)
 		header.pack(fill="x", padx=15, pady=(10, 5))
 
@@ -146,9 +156,9 @@ class RsyncGUI(tk.Tk):
 			image=self.ufmg_logo
 		).pack(side="right")
 
-		# =========================
+		########################################
 		# Abas
-		# =========================	
+		########################################	
 		notebook = ttk.Notebook(self)
 		notebook.pack(fill="both", expand=True)
 
@@ -167,11 +177,11 @@ class RsyncGUI(tk.Tk):
 		self._build_tab_cmds(self.tab_cmds)
 		self._build_tab_data(self.tab_data)
 
-	# ----------------------------
+	########################################
 	def ui(self, func, *args, **kwargs):
 		self.after(0, lambda: func(*args, **kwargs))
-    
-	# ----------------------------
+	
+	########################################
 	def _build_tab_home(self, parent):
 
 		BASE_DIR = os.path.dirname(
@@ -202,8 +212,8 @@ class RsyncGUI(tk.Tk):
 			rely=0.5,
 			anchor="center"
 		)
-    
-	# ----------------------------
+	
+	########################################
 	def _build_tab_files(self, parent):
 		top = ttk.Frame(parent)
 		top.pack(fill="x", padx=10, pady=8)
@@ -286,7 +296,7 @@ class RsyncGUI(tk.Tk):
 		for n, c in COLORS.items():
 			style.configure(f"{n}.TCheckbutton", foreground=c, font=("Arial", 10, "bold"))
 
-	# ----------------------------
+	########################################
 	def _build_tab_cmds(self, parent):
 		ttk.Label(parent, text="Executar comandos remotos nas Raspberries selecionadas").pack(anchor="w", padx=10, pady=(10, 4))
 
@@ -316,7 +326,7 @@ class RsyncGUI(tk.Tk):
 			pady=6
 		)
 
-		# ----------------------------
+		########################################
 		# painel do grafico
 		plot_frame = ttk.Frame(bottom)
 		
@@ -368,7 +378,7 @@ class RsyncGUI(tk.Tk):
 			expand=True
 		)
 
-		# ----------------------------
+		########################################
 		# painel do terminal
 		terminal_frame = ttk.Frame(bottom)
 
@@ -390,7 +400,7 @@ class RsyncGUI(tk.Tk):
 		bottom.add(plot_frame, weight=1)
 		bottom.add(terminal_frame, weight=1)
 
-	# ----------------------------
+	########################################
 	def _build_tab_data(self, parent):
 
 		ttk.Label(
@@ -471,36 +481,58 @@ class RsyncGUI(tk.Tk):
 		)
 		self.data_log.configure(state="disabled")
 		
-	# ----------------------------
+	########################################
 	# Funções utilitárias comuns
-	# ----------------------------
+	########################################
 	def log_write(self, text):
 		self.log.configure(state="normal")
 		self.log.insert("end", text + "\n")
 		self.log.see("end")
 		self.log.configure(state="disabled")
 
+	########################################
 	def cmdlog_write(self, text):
 		self.cmd_log.configure(state="normal")
 		self.cmd_log.insert("end", text + "\n")
 		self.cmd_log.see("end")
 		self.cmd_log.configure(state="disabled")
 
+	########################################
 	def select_files(self):
-		files = filedialog.askopenfilenames(title="Selecione arquivos (Ctrl/Shift para múltiplos)")
+		# raiz do projeto: um nível acima da pasta tools
+		project_dir = os.path.dirname(
+			os.path.dirname(os.path.abspath(__file__))
+		)
+
+		files = filedialog.askopenfilenames(
+			title="Selecione arquivos (Ctrl/Shift para múltiplos)",
+			initialdir=project_dir
+		)
+
 		for f in files:
 			if f not in self.selected_files:
 				self.selected_files.append(f)
 				self.files_listbox.insert("end", f)
 
+	########################################
 	def add_directory(self):
-		d = filedialog.askdirectory(title="Selecione uma pasta")
+		# raiz do projeto: um nível acima da pasta tools
+		project_dir = os.path.dirname(
+			os.path.dirname(os.path.abspath(__file__))
+		)
+
+		d = filedialog.askdirectory(
+			title="Selecione uma pasta",
+			initialdir=project_dir
+		)
+
 		if d:
 			path = os.path.join(d, "")
 			if path not in self.selected_files:
 				self.selected_files.append(path)
 				self.files_listbox.insert("end", path)
 
+	########################################
 	def remove_selected(self):
 		sel = list(self.files_listbox.curselection())
 		for idx in reversed(sel):
@@ -511,10 +543,12 @@ class RsyncGUI(tk.Tk):
 			except ValueError:
 				pass
 
+	########################################
 	def clear_files(self):
 		self.files_listbox.delete(0, "end")
 		self.selected_files = []
 
+	########################################
 	def refresh_ips(self):
 		"""
 		Atualiza IPs; antes de consultar a ARP, tenta gerar tráfego (ping) para
@@ -599,12 +633,13 @@ class RsyncGUI(tk.Tk):
 			)
 
 
+	########################################
 	def get_selected_devices(self):
 		return [(n, i["ip"]) for n, i in self.devices.items() if i["var"].get() and i["ip"]]
 
-	# ----------------------------
+	########################################
 	# Envio de arquivos (aba 1)
-	# ----------------------------
+	########################################
 	def send_to_selected(self):
 		targets = self.get_selected_devices()
 		if not targets:
@@ -612,10 +647,12 @@ class RsyncGUI(tk.Tk):
 			return
 		threading.Thread(target=self._run_rsync_for_targets, args=(targets,), daemon=True).start()
 
+	########################################
 	def send_to_all(self):
 		targets = [(n, i["ip"]) for n, i in self.devices.items() if i["ip"]]
 		threading.Thread(target=self._run_rsync_for_targets, args=(targets,), daemon=True).start()
 
+	########################################
 	def _run_rsync_for_targets(self, targets):
 		dest = self.dest_entry.get().strip()
 		user = self.user_entry.get().strip() or SSH_USER
@@ -662,9 +699,9 @@ class RsyncGUI(tk.Tk):
 
 		self.log_write("🏁 Todas as transferências finalizadas.")
 
-	# ----------------------------
-	# Execução remota (aba 2) - com absolutização de main.py e cd no workdir
-	# ----------------------------
+	########################################
+	# Execução remota (aba 2)
+	########################################
 	def run_cmds_on_selected(self):
 		targets = self.get_selected_devices()
 		if not targets:
@@ -679,39 +716,23 @@ class RsyncGUI(tk.Tk):
 		self.after(0, self.update_plot)
 		
 		threading.Thread(target=self._run_remote_cmds, args=(targets, cmds), daemon=True).start()
-
+		
+	########################################
 	def _run_remote_cmds(self, targets, cmds):
 		user = self.user_entry.get().strip() or SSH_USER
 		password = self.pass_entry.get().strip()
 		has_sshpass = shutil.which("sshpass") is not None
 		remote_workdir = (self.dest_entry.get().strip() or DEFAULT_DEST).rstrip("/")
 
-		def absolutize_python_main(cmd_line: str) -> str:
-			"""
-			Se o comando for 'python3 main.py' (ou python main.py), substitui o argumento
-			'main.py' por '<remote_workdir>/main.py' para garantir execução do arquivo correto.
-			"""
-			parts = cmd_line.strip().split()
-			if not parts:
-				return cmd_line
-			py_bins = {"python", "python3", "/usr/bin/python", "/usr/bin/python3"}
-			if parts[0] in py_bins and len(parts) >= 2:
-				if parts[1] == "main.py":
-					parts[1] = f'{remote_workdir}/main.py'
-					return " ".join(parts)
-			return cmd_line
-
 		for name, ip in targets:
 			self.cmdlog_write("\n" + "=" * 60)
 			self.cmdlog_write(f"💻 Executando carro {name.upper()} ({ip}) - workdir: {remote_workdir}")
+			
 			for raw_cmd in cmds:
-				# 1) força caminho absoluto quando for python* main.py
-				cmd_line = absolutize_python_main(raw_cmd)
+				# executa o comando dentro do diretório de trabalho
+				wrapped = f'cd "{remote_workdir}" && {raw_cmd}'
 
-				# 2) envolve com cd no workdir (redundante mas garante contexto)
-				wrapped = f'cd "{remote_workdir}" && {cmd_line}'
-
-				# 3) monta comando ssh (evita usar bash -lc; envia uma linha única)
+				# monta comando ssh (evita usar bash -lc; envia uma linha única)
 				if password and has_sshpass:
 					full_cmd = ["sshpass", "-p", password, "ssh", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}", wrapped]
 				else:
@@ -788,10 +809,9 @@ class RsyncGUI(tk.Tk):
 					self.cmdlog_write(f"❌ Erro: {e}")
 			self.cmdlog_write(f"✅ Carro {name.upper()} finalizado")
 
-	# ----------------------------
+	########################################
 	# Execução remota (aba 3)
-	# ----------------------------
-	# ----------------------------
+	########################################
 	def select_data_destination(self):
 		directory = filedialog.askdirectory(
 			title="Selecione onde salvar os dados dos experimentos"
@@ -801,7 +821,7 @@ class RsyncGUI(tk.Tk):
 			self.data_dest_entry.delete(0, "end")
 			self.data_dest_entry.insert(0, directory)
 
-	# ----------------------------
+	########################################
 	def collect_data(self):
 
 		targets = self.get_selected_devices()
@@ -830,7 +850,7 @@ class RsyncGUI(tk.Tk):
 			daemon=True
 		).start()
 	
-	# ----------------------------
+	########################################
 	def _collect_data(self, targets, local_base):
 
 		user = self.user_entry.get().strip() or SSH_USER
@@ -900,14 +920,14 @@ class RsyncGUI(tk.Tk):
 
 		self.datalog_write("🏁 Coleta finalizada.")
 		
-	# ----------------------------
+	########################################
 	def datalog_write(self, text):
 		self.data_log.configure(state="normal")
 		self.data_log.insert("end", text + "\n")
 		self.data_log.see("end")
 		self.data_log.configure(state="disabled")
 
-	# ----------------------------
+	########################################
 	def update_plot(self):
 
 		self.ax.clear()
@@ -999,9 +1019,9 @@ class RsyncGUI(tk.Tk):
 		self.ax.grid(True)
 		self.canvas.draw_idle()
 	
-# =========================
+########################################
 # Execução
-# =========================
+########################################
 if __name__ == "__main__":
 	if shutil.which("rsync") is None:
 		print("Aviso: instale rsync (sudo apt install rsync)")
