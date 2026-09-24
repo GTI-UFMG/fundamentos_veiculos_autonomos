@@ -753,15 +753,21 @@ class RsyncGUI(tk.Tk):
 					wrapped = f'cd "{remote_workdir}" && {raw_cmd}'
 					self.ui(self.cmdlog_write, f"$ {wrapped}")
 
-					stdin, stdout, stderr = client.exec_command(wrapped, get_pty=True)
+					stdin, stdout, stderr = client.exec_command(wrapped, get_pty=False)
 					for line in iter(stdout.readline, ""):
 						line = line.rstrip("\r\n")
 						if not line:
 							continue
 
-						if line.startswith("DATA,"):
+						# Limpa sequências ANSI/controle antes de interpretar a telemetria
+						line_clean = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line).strip()
+
+						if line_clean.startswith("DATA,"):
 							try:
-								_, t, x, y, v, vref, a, u, w, th = line.split(",")
+								parts = [p.strip() for p in line_clean.split(",")]
+								if len(parts) != 10:
+									raise ValueError(f"esperados 10 campos, recebidos {len(parts)}")
+								_, t, x, y, v, vref, a, u, w, th = parts
 								if name not in self.telemetry:
 									self.telemetry[name] = {
 										"t": [], "x": [], "y": [], "v": [], "vref": [],
@@ -779,7 +785,7 @@ class RsyncGUI(tk.Tk):
 								data["th"].append(float(th))
 								self.after(0, self.update_plot)
 							except ValueError:
-								self.ui(self.cmdlog_write, f"[{name.upper()}] Telemetria inválida: {line}")
+								self.ui(self.cmdlog_write, f"[{name.upper()}] Telemetria inválida: {line_clean}")
 						else:
 							self.ui(self.cmdlog_write, f"[{name.upper()}] {line}")
 
