@@ -1,0 +1,982 @@
+# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
+########################################
+# Disciplina: Topicos em Engenharia de Controle e Automacao IV (ENG075): 
+# Fundamentos de Veiculos Autonomos - 2026/2
+# Professores: Armando Alves Neto e Leonardo A. Mozelli
+# Cursos: Engenharia de Controle e Automacao
+# DELT - Escola de Engenharia
+# Universidade Federal de Minas Gerais
+########################################
+# GUI Tkinter para envio de arquivos e execução remota em múltiplas Raspberry Pis,
+# com senha SSH padrão (DEFAULT_PASS) pré-preenchida no campo.
+
+import os
+import re
+import posixpath
+import platform
+import subprocess
+import threading
+import stat
+
+import paramiko
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, scrolledtext
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+########################################
+# Configurações (ajuste aqui)
+########################################
+SSH_USER = "alunos"
+DEFAULT_PASS = "fva2023"  # <-- coloque aqui a senha padrão desejada, ex: "rasp123"
+DEFAULT_DEST = "/home/alunos/Desktop/fva"
+
+MACS_CARS = {
+	'verde':    '2c:cf:67:1c:29:4a',
+	'vermelho': 'd8:3a:dd:f1:8a:4f',
+	'roxo':     '2c:cf:67:1c:29:07'
+}
+
+COLORS = {
+	'verde':    '#00cc00',
+	'vermelho': '#cc0000',
+	'roxo':     '#8000cc'
+}
+
+CAR_ICON = "🚗 "
+
+########################################
+# Utilitários de rede multiplataforma
+########################################
+def normalize_mac(mac: str) -> str:
+	mac = mac.strip().lower()
+	mac = re.sub(r'[^0-9a-f]', '', mac)
+	if len(mac) != 12:
+		raise ValueError(f"MAC inválido: {mac}")
+	return ':'.join(mac[i:i+2] for i in range(0, 12, 2))
+
+########################################
+def ping_host(host: str) -> bool:
+	"""Envia um ping curto em Windows, Linux ou macOS."""
+	if platform.system() == "Windows":
+		cmd = ["ping", "-n", "1", "-w", "700", host]
+	else:
+		cmd = ["ping", "-c", "1", "-W", "1", host]
+	try:
+		return subprocess.run(
+			cmd,
+			stdout=subprocess.DEVNULL,
+			stderr=subprocess.DEVNULL,
+			check=False,
+		).returncode == 0
+	except Exception:
+		return False
+
+########################################
+def parse_arp_table():
+	"""Retorna pares (IP, MAC) usando as tabelas ARP disponíveis no SO."""
+	entries = []
+	commands = []
+	if platform.system() == "Windows":
+		commands.append(["arp", "-a"])
+	else:
+		commands.extend([["ip", "neigh"], ["arp", "-n"], ["arp", "-a"]])
+
+	for cmd in commands:
+		try:
+			out = subprocess.check_output(cmd, text=True, errors="ignore")
+		except Exception:
+			continue
+
+		for line in out.splitlines():
+			ip_match = re.search(r'(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])', line)
+			mac_match = re.search(r'([0-9a-fA-F]{2}(?:[:-][0-9a-fA-F]{2}){5})', line)
+			if ip_match and mac_match:
+				try:
+					entries.append((ip_match.group(1), normalize_mac(mac_match.group(1))))
+				except ValueError:
+					pass
+
+	return list(dict.fromkeys(entries))
+
+########################################
+def find_ip_by_mac_arptable(target_mac: str):
+	try:
+		target_mac = normalize_mac(target_mac)
+	except Exception:
+		return None
+
+	for ip, mac in parse_arp_table():
+		if mac == target_mac:
+			return ip
+	return None
+
+########################################
+# Interface Principal
+########################################
+class RsyncGUI(tk.Tk):
+	def __init__(self):
+		super().__init__()
+		self.title("FVA - gerenciador de controle")
+		self.geometry("1024x720")
+		#self.attributes("-fullscreen", True)
+		#self.bind("<Escape>", lambda event: self.attributes("-fullscreen", False))
+		self.devices = {}
+		self.selected_files = []
+		self._build_ui()
+		# preenche a senha padrão (se houver)
+		if DEFAULT_PASS:
+			self.pass_entry.insert(0, DEFAULT_PASS)
+		self.after(
+					200,
+					lambda: threading.Thread(
+						target=self.refresh_ips,
+						daemon=True
+					).start()
+				)
+		
+		self.telemetry = {}
+		
+		# aumenta fontes
+		style = ttk.Style()
+		style.configure(".", font=("Arial", 14))
+		style.configure("TButton", font=("Arial", 14))
+		style.configure("TLabel", font=("Arial", 14))
+		style.configure("TCheckbutton", font=("Arial", 14))
+		style.configure("TNotebook.Tab", font=("Arial", 14, "bold"), padding=[12, 8])
+
+	########################################
+	def _build_ui(self):
+
+		########################################
+		# Cabecalho
+		########################################
+		header = ttk.Frame(self)
+		header.pack(fill="x", padx=15, pady=(10, 5))
+
+		# titulo
+		title_frame = ttk.Frame(header)
+		title_frame.pack(side="left")
+
+		ttk.Label(
+			title_frame,
+			text="FVA — Fundamentos de Veículos Autônomos",
+			font=("Arial", 18, "bold")
+		).pack(anchor="w")
+
+		ttk.Label(
+			title_frame,
+			text="Gerenciador dos Veículos Experimentais",
+			font=("Arial", 12)
+		).pack(anchor="w")
+
+		# logo UFMG
+		BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+		logo_path = os.path.join(BASE_DIR, "assets", "ufmg_logo.png")
+		self.ufmg_logo = tk.PhotoImage(file=logo_path)
+		# reduz a imagem pela metade
+		self.ufmg_logo = self.ufmg_logo.subsample(6, 6)
+
+		ttk.Label(
+			header,
+			image=self.ufmg_logo
+		).pack(side="right")
+
+		########################################
+		# Abas
+		########################################	
+		notebook = ttk.Notebook(self)
+		notebook.pack(fill="both", expand=True)
+
+		self.tab_home = tk.Frame(notebook, bg="black")
+		self.tab_files = ttk.Frame(notebook)
+		self.tab_cmds = ttk.Frame(notebook)
+		self.tab_data = ttk.Frame(notebook)
+
+		notebook.add(self.tab_home, text="🏠 Início")
+		notebook.add(self.tab_files, text="📂 Enviar Arquivos")
+		notebook.add(self.tab_cmds, text="💻 Executar Comandos")
+		notebook.add(self.tab_data, text="📊 Coletar Dados")
+
+		self._build_tab_home(self.tab_home)
+		self._build_tab_files(self.tab_files)
+		self._build_tab_cmds(self.tab_cmds)
+		self._build_tab_data(self.tab_data)
+
+	########################################
+	def ui(self, func, *args, **kwargs):
+		self.after(0, lambda: func(*args, **kwargs))
+	
+	########################################
+	def _build_tab_home(self, parent):
+
+		BASE_DIR = os.path.dirname(
+			os.path.dirname(os.path.abspath(__file__))
+		)
+
+		image_path = os.path.join(
+			BASE_DIR,
+			"assets",
+			"wallpaper_fva.png"
+		)
+
+		# carrega a imagem
+		self.home_image = tk.PhotoImage(file=image_path)
+
+		# label com fundo preto
+		label = tk.Label(
+			parent,
+			image=self.home_image,
+			bg="black",
+			borderwidth=0,
+			highlightthickness=0
+		)
+
+		# centraliza horizontal e verticalmente
+		label.place(
+			relx=0.5,
+			rely=0.5,
+			anchor="center"
+		)
+	
+	########################################
+	def _build_tab_files(self, parent):
+		top = ttk.Frame(parent)
+		top.pack(fill="x", padx=10, pady=8)
+		ttk.Label(top, text="Dispositivos detectados (cor quando encontrados):").pack(anchor="w")
+		self.devices_frame = ttk.Frame(top)
+		self.devices_frame.pack(fill="x", padx=4, pady=6)
+
+		# Linhas de dispositivos (cor apenas quando IP é encontrado)
+		for i, (name, mac) in enumerate(MACS_CARS.items()):
+			var = tk.IntVar(value=0)
+			cb = ttk.Checkbutton(self.devices_frame, text=f"{CAR_ICON}{name.upper()} — {mac}",
+								 variable=var, style="Default.TCheckbutton")
+			cb.grid(row=i, column=0, sticky="w", padx=4, pady=2)
+			ip_label = tk.Label(self.devices_frame, text="... buscando ...", width=22,
+								fg="white", font=("Arial", 10, "bold"))
+			ip_label.grid(row=i, column=1, sticky="w", pady=2)
+			self.devices[name] = {"mac": mac, "ip_label": ip_label, "cb": cb, "var": var, "ip": None}
+
+		# Botões de ação
+		btns = ttk.Frame(parent)
+		btns.pack(fill="x", padx=6, pady=6)
+		ttk.Button(
+					btns,
+					text="Atualizar IPs",
+					command=lambda: threading.Thread(
+						target=self.refresh_ips,
+						daemon=True
+					).start()
+				).pack(side="left", padx=4)
+		ttk.Button(btns, text="Selecionar arquivos…", command=self.select_files).pack(side="left", padx=4)
+		ttk.Button(btns, text="Adicionar pasta…", command=self.add_directory).pack(side="left", padx=4)
+		ttk.Button(btns, text="Remover selecionado(s)", command=self.remove_selected).pack(side="left", padx=4)
+		ttk.Button(btns, text="Limpar seleção", command=self.clear_files).pack(side="left", padx=4)
+
+		# Lista de arquivos/pastas
+		ttk.Label(parent, text="Arquivos/Pastas selecionados:").pack(anchor="w", padx=10)
+		self.files_listbox = tk.Listbox(parent, height=6, selectmode="extended")
+		self.files_listbox.pack(fill="x", padx=10, pady=(2, 6))
+
+		# Destino remoto (USADO TAMBÉM NA ABA DE COMANDOS)
+		dest_frame = ttk.Frame(parent)
+		dest_frame.pack(fill="x", padx=10, pady=6)
+		ttk.Label(dest_frame, text="Destino na Raspberry (também será o diretório de trabalho dos comandos):").pack(side="left")
+		self.dest_entry = ttk.Entry(dest_frame)
+		self.dest_entry.insert(0, DEFAULT_DEST)
+		self.dest_entry.pack(side="left", fill="x", expand=True, padx=8)
+
+		# SSH / SFTP (Paramiko)
+		opt = ttk.Frame(parent)
+		opt.pack(fill="x", padx=10, pady=6)
+		ttk.Label(opt, text="Usuário:").pack(side="left")
+		self.user_entry = ttk.Entry(opt, width=14)
+		self.user_entry.insert(0, SSH_USER)
+		self.user_entry.pack(side="left", padx=4)
+		ttk.Label(opt, text="Senha:").pack(side="left", padx=(8, 0))
+		self.pass_entry = ttk.Entry(opt, width=14, show="*")
+		self.pass_entry.pack(side="left", padx=4)
+		ttk.Label(opt, text="Transferência: SFTP (multiplataforma)").pack(side="left", padx=(12, 0))
+
+		# Envio
+		send = ttk.Frame(parent)
+		send.pack(fill="x", padx=10, pady=6)
+		ttk.Button(send, text="Enviar para selecionados", command=self.send_to_selected).pack(side="left", padx=4)
+		ttk.Button(send, text="Enviar para todos (com IP)", command=self.send_to_all).pack(side="left", padx=4)
+
+		# Log
+		log_frame = ttk.Frame(parent)
+		log_frame.pack(fill="both", expand=True, padx=10, pady=8)
+		ttk.Label(log_frame, text="Log:").pack(anchor="w")
+		self.log = scrolledtext.ScrolledText(log_frame, height=10)
+		self.log.pack(fill="both", expand=True)
+		self.log.configure(state="disabled")
+
+		# estilos
+		style = ttk.Style()
+		style.configure("Default.TCheckbutton", foreground="white", font=("Arial", 10))
+		for n, c in COLORS.items():
+			style.configure(f"{n}.TCheckbutton", foreground=c, font=("Arial", 10, "bold"))
+
+	########################################
+	def _build_tab_cmds(self, parent):
+		ttk.Label(parent, text="Executar comandos remotos nas Raspberries selecionadas").pack(anchor="w", padx=10, pady=(10, 4))
+
+		hint = ttk.Label(parent, text="Obs.: os comandos serão executados dentro de: (aba Enviar Arquivos) → campo 'Destino na Raspberry'",
+						 foreground="#888")
+		hint.pack(anchor="w", padx=10, pady=(0, 6))
+
+		cmds_frame = ttk.Frame(parent)
+		cmds_frame.pack(fill="x", padx=10, pady=4)
+		ttk.Label(cmds_frame, text="Comandos (1 por linha):").pack(anchor="w")
+		self.cmd_text = scrolledtext.ScrolledText(cmds_frame, height=6)
+		self.cmd_text.insert(
+								"end",
+								'pkill -f "python3.*main.py"\n'
+								'python3 main.py\n'
+							)
+		self.cmd_text.pack(fill="x", pady=4)
+
+		ttk.Button(parent, text="Executar nos selecionados", command=self.run_cmds_on_selected).pack(pady=6)
+
+		# area inferior: grafico e terminal lado a lado
+		bottom = ttk.PanedWindow(parent, orient="horizontal")
+		bottom.pack(
+			fill="both",
+			expand=True,
+			padx=10,
+			pady=6
+		)
+
+		########################################
+		# painel do grafico
+		plot_frame = ttk.Frame(bottom)
+		
+		# seletor do grafico
+		plot_select = ttk.Frame(plot_frame)
+		plot_select.pack(fill="x", pady=(0, 5))
+
+		ttk.Label(
+			plot_select,
+			text="Gráfico:"
+		).pack(side="left", padx=(0, 5))
+
+		self.plot_var = tk.StringVar(value="Velocidade")
+
+		self.plot_combo = ttk.Combobox(
+			plot_select,
+			textvariable=self.plot_var,
+			state="readonly",
+			values=[
+				"Velocidade",
+				"Aceleração / Controle",
+				"Velocidade angular",
+				"Orientação",
+				"Trajetória XY"
+			],
+			width=24
+		)
+
+		self.plot_combo.pack(side="left")
+		
+		self.plot_combo.bind(
+			"<<ComboboxSelected>>",
+			lambda event: self.update_plot()
+		)
+
+		self.fig = Figure(figsize=(6, 4), dpi=100)
+		self.ax = self.fig.add_subplot(111)
+
+		self.ax.set_xlabel("Tempo [s]")
+		self.ax.set_ylabel("Velocidade [m/s]")
+		self.ax.grid(True)
+
+		self.canvas = FigureCanvasTkAgg(
+			self.fig,
+			master=plot_frame
+		)
+		self.canvas.get_tk_widget().pack(
+			fill="both",
+			expand=True
+		)
+
+		########################################
+		# painel do terminal
+		terminal_frame = ttk.Frame(bottom)
+
+		ttk.Label(
+			terminal_frame,
+			text="Terminal:"
+		).pack(anchor="w")
+
+		self.cmd_log = scrolledtext.ScrolledText(
+			terminal_frame
+		)
+		self.cmd_log.pack(
+			fill="both",
+			expand=True
+		)
+		self.cmd_log.configure(state="disabled")
+
+		# adiciona os dois lados
+		bottom.add(plot_frame, weight=1)
+		bottom.add(terminal_frame, weight=1)
+
+	########################################
+	def _build_tab_data(self, parent):
+
+		ttk.Label(
+			parent,
+			text="Coletar dados dos experimentos armazenados nas Raspberries"
+		).pack(
+			anchor="w",
+			padx=10,
+			pady=(10, 6)
+		)
+
+		# dispositivos
+		devices_frame = ttk.Frame(parent)
+		devices_frame.pack(fill="x", padx=10, pady=6)
+
+		ttk.Label(
+			devices_frame,
+			text="Os carrinhos selecionados na aba 'Enviar Arquivos' serão utilizados."
+		).pack(anchor="w")
+
+		# pasta local
+		local_frame = ttk.Frame(parent)
+		local_frame.pack(fill="x", padx=10, pady=10)
+
+		ttk.Label(
+			local_frame,
+			text="Destino no computador:"
+		).pack(side="left")
+
+		self.data_dest_entry = ttk.Entry(local_frame)
+		self.data_dest_entry.insert(
+			0,
+			os.path.join(os.getcwd(), "experimentos")
+		)
+		self.data_dest_entry.pack(
+			side="left",
+			fill="x",
+			expand=True,
+			padx=8
+		)
+
+		ttk.Button(
+			local_frame,
+			text="Selecionar...",
+			command=self.select_data_destination
+		).pack(side="left")
+
+		# botao de coleta
+		ttk.Button(
+			parent,
+			text="📥 Coletar dados dos selecionados",
+			command=self.collect_data
+		).pack(
+			anchor="w",
+			padx=10,
+			pady=6
+		)
+
+		# log
+		ttk.Label(
+			parent,
+			text="Transferências:"
+		).pack(
+			anchor="w",
+			padx=10,
+			pady=(10, 2)
+		)
+
+		self.data_log = scrolledtext.ScrolledText(
+			parent,
+			height=16
+		)
+		self.data_log.pack(
+			fill="both",
+			expand=True,
+			padx=10,
+			pady=(0, 10)
+		)
+		self.data_log.configure(state="disabled")
+		
+	########################################
+	# Funções utilitárias comuns
+	########################################
+	def log_write(self, text):
+		self.log.configure(state="normal")
+		self.log.insert("end", text + "\n")
+		self.log.see("end")
+		self.log.configure(state="disabled")
+
+	########################################
+	def cmdlog_write(self, text):
+		self.cmd_log.configure(state="normal")
+		self.cmd_log.insert("end", text + "\n")
+		self.cmd_log.see("end")
+		self.cmd_log.configure(state="disabled")
+
+	########################################
+	def select_files(self):
+		# raiz do projeto: um nível acima da pasta tools
+		project_dir = os.path.dirname(
+			os.path.dirname(os.path.abspath(__file__))
+		)
+
+		files = filedialog.askopenfilenames(
+			title="Selecione arquivos (Ctrl/Shift para múltiplos)",
+			initialdir=project_dir
+		)
+
+		for f in files:
+			if f not in self.selected_files:
+				self.selected_files.append(f)
+				self.files_listbox.insert("end", f)
+
+	########################################
+	def add_directory(self):
+		# raiz do projeto: um nível acima da pasta tools
+		project_dir = os.path.dirname(
+			os.path.dirname(os.path.abspath(__file__))
+		)
+
+		d = filedialog.askdirectory(
+			title="Selecione uma pasta",
+			initialdir=project_dir
+		)
+
+		if d:
+			path = os.path.join(d, "")
+			if path not in self.selected_files:
+				self.selected_files.append(path)
+				self.files_listbox.insert("end", path)
+
+	########################################
+	def remove_selected(self):
+		sel = list(self.files_listbox.curselection())
+		for idx in reversed(sel):
+			val = self.files_listbox.get(idx)
+			self.files_listbox.delete(idx)
+			try:
+				self.selected_files.remove(val)
+			except ValueError:
+				pass
+
+	########################################
+	def clear_files(self):
+		self.files_listbox.delete(0, "end")
+		self.selected_files = []
+
+	########################################
+	def refresh_ips(self):
+		"""Atualiza IPs pelos MACs usando ping + tabela ARP do sistema."""
+		self.ui(self.log_write, "🔍 Atualizando IPs ...")
+
+		# Gera algum tráfego antes de consultar a tabela ARP.
+		possible_hosts = ["raspberrypi.local", "raspberrypi"]
+		for info in self.devices.values():
+			if info.get("ip"):
+				ping_host(info["ip"])
+		for host in possible_hosts:
+			ping_host(host)
+
+		arp_entries = parse_arp_table()
+		arp_by_mac = {mac: ip for ip, mac in arp_entries}
+
+		for name, info in self.devices.items():
+			try:
+				mac = normalize_mac(info["mac"])
+			except ValueError:
+				mac = ""
+			ip = arp_by_mac.get(mac)
+			info["ip"] = ip
+
+			if ip:
+				self.ui(info["ip_label"].config, text=ip, fg=COLORS.get(name, "#00ff00"))
+				self.ui(info["cb"].configure, style=f"{name}.TCheckbutton")
+				self.ui(info["var"].set, 1)
+			else:
+				self.ui(info["ip_label"].config, text="não encontrado", fg="white")
+				self.ui(info["cb"].configure, style="Default.TCheckbutton")
+
+			self.ui(self.log_write, f"{name}: {ip if ip else 'não encontrado'}")
+
+		self.ui(self.log_write, "✅ Atualização concluída.")
+
+	########################################
+	def get_selected_devices(self):
+		return [(n, i["ip"]) for n, i in self.devices.items() if i["var"].get() and i["ip"]]
+
+	########################################
+	# Envio de arquivos (aba 1)
+	########################################
+	def send_to_selected(self):
+		targets = self.get_selected_devices()
+		if not targets:
+			messagebox.showinfo("Nenhum alvo", "Selecione pelo menos uma Raspberry com IP.")
+			return
+		threading.Thread(target=self._run_sftp_for_targets, args=(targets,), daemon=True).start()
+
+	########################################
+	def send_to_all(self):
+		targets = [(n, i["ip"]) for n, i in self.devices.items() if i["ip"]]
+		threading.Thread(target=self._run_sftp_for_targets, args=(targets,), daemon=True).start()
+
+	########################################
+	def _connect_ssh(self, ip):
+		client = paramiko.SSHClient()
+		client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+		client.connect(
+			ip,
+			username=self.user_entry.get().strip() or SSH_USER,
+			password=self.pass_entry.get().strip() or None,
+			timeout=8,
+			auth_timeout=8,
+			banner_timeout=8,
+		)
+		return client
+
+	########################################
+	def _sftp_mkdir_p(self, sftp, remote_dir):
+		remote_dir = posixpath.normpath(remote_dir)
+		parts = remote_dir.strip("/").split("/") if remote_dir != "/" else []
+		current = "/" if remote_dir.startswith("/") else ""
+		for part in parts:
+			current = posixpath.join(current, part)
+			try:
+				sftp.stat(current)
+			except IOError:
+				sftp.mkdir(current)
+
+	########################################
+	def _sftp_upload_file(self, sftp, local_path, remote_path):
+		self._sftp_mkdir_p(sftp, posixpath.dirname(remote_path))
+		sftp.put(local_path, remote_path)
+
+	########################################
+	def _sftp_upload_directory_contents(self, sftp, local_dir, remote_dir):
+		self._sftp_mkdir_p(sftp, remote_dir)
+		for root, dirs, files in os.walk(local_dir):
+			rel = os.path.relpath(root, local_dir)
+			remote_root = remote_dir if rel == "." else posixpath.join(remote_dir, *rel.split(os.sep))
+			self._sftp_mkdir_p(sftp, remote_root)
+			for dirname in dirs:
+				self._sftp_mkdir_p(sftp, posixpath.join(remote_root, dirname))
+			for filename in files:
+				self._sftp_upload_file(
+					sftp,
+					os.path.join(root, filename),
+					posixpath.join(remote_root, filename),
+				)
+
+	########################################
+	def _run_sftp_for_targets(self, targets):
+		dest = (self.dest_entry.get().strip() or DEFAULT_DEST).rstrip("/")
+
+		if not self.selected_files:
+			self.ui(self.log_write, "⚠️ Nenhum arquivo ou pasta selecionado.")
+			return
+
+		missing = [p for p in self.selected_files if not os.path.exists(p)]
+		if missing:
+			self.ui(self.log_write, "❌ Itens inexistentes:")
+			for item in missing:
+				self.ui(self.log_write, "   - " + item)
+			return
+
+		for name, ip in targets:
+			self.ui(self.log_write, "=" * 60)
+			self.ui(self.log_write, f"🚀 Enviando via SFTP para {name.upper()} ({ip})")
+			client = None
+			sftp = None
+			try:
+				client = self._connect_ssh(ip)
+				sftp = client.open_sftp()
+				self._sftp_mkdir_p(sftp, dest)
+
+				for path in self.selected_files:
+					if os.path.isdir(path):
+						# Mesmo comportamento do antigo rsync com barra final:
+						# envia o CONTEÚDO da pasta para o destino.
+						self.ui(self.log_write, f"📁 {path} -> {dest}/")
+						self._sftp_upload_directory_contents(sftp, path, dest)
+					else:
+						remote_path = posixpath.join(dest, os.path.basename(path))
+						self.ui(self.log_write, f"📄 {path} -> {remote_path}")
+						self._sftp_upload_file(sftp, path, remote_path)
+
+				self.ui(self.log_write, f"✅ Sucesso: {name.upper()} ({ip})")
+			except Exception as e:
+				self.ui(self.log_write, f"❌ Erro em {name.upper()} ({ip}): {e}")
+			finally:
+				if sftp:
+					sftp.close()
+				if client:
+					client.close()
+
+		self.ui(self.log_write, "🏁 Todas as transferências finalizadas.")
+
+	########################################
+	# Execução remota (aba 2)
+	########################################
+	def run_cmds_on_selected(self):
+		targets = self.get_selected_devices()
+		if not targets:
+			messagebox.showinfo("Nenhum alvo", "Selecione ao menos uma Raspberry com IP.")
+			return
+		cmds = [c.strip() for c in self.cmd_text.get("1.0", "end").splitlines() if c.strip()]
+		if not cmds:
+			messagebox.showinfo("Nenhum comando", "Digite ao menos um comando.")
+			return
+			
+		self.telemetry = {}
+		self.after(0, self.update_plot)
+		
+		threading.Thread(target=self._run_remote_cmds, args=(targets, cmds), daemon=True).start()
+		
+	########################################
+	def _run_remote_cmds(self, targets, cmds):
+		remote_workdir = (self.dest_entry.get().strip() or DEFAULT_DEST).rstrip("/")
+
+		for name, ip in targets:
+			self.ui(self.cmdlog_write, "\n" + "=" * 60)
+			self.ui(self.cmdlog_write, f"💻 Executando carro {name.upper()} ({ip}) - workdir: {remote_workdir}")
+			client = None
+			try:
+				client = self._connect_ssh(ip)
+				for raw_cmd in cmds:
+					wrapped = f'cd "{remote_workdir}" && {raw_cmd}'
+					self.ui(self.cmdlog_write, f"$ {wrapped}")
+
+					stdin, stdout, stderr = client.exec_command(wrapped, get_pty=True)
+					for line in iter(stdout.readline, ""):
+						line = line.rstrip("\r\n")
+						if not line:
+							continue
+
+						if line.startswith("DATA,"):
+							try:
+								_, t, x, y, v, vref, a, u, w, th = line.split(",")
+								if name not in self.telemetry:
+									self.telemetry[name] = {
+										"t": [], "x": [], "y": [], "v": [], "vref": [],
+										"a": [], "u": [], "w": [], "th": []
+									}
+								data = self.telemetry[name]
+								data["t"].append(float(t))
+								data["x"].append(float(x))
+								data["y"].append(float(y))
+								data["v"].append(float(v))
+								data["vref"].append(float(vref))
+								data["a"].append(float(a))
+								data["u"].append(float(u))
+								data["w"].append(float(w))
+								data["th"].append(float(th))
+								self.after(0, self.update_plot)
+							except ValueError:
+								self.ui(self.cmdlog_write, f"[{name.upper()}] Telemetria inválida: {line}")
+						else:
+							self.ui(self.cmdlog_write, f"[{name.upper()}] {line}")
+
+					rc = stdout.channel.recv_exit_status()
+					if rc != 0:
+						self.ui(self.cmdlog_write, f"⚠️ Retorno {rc} para comando: {raw_cmd}")
+
+				self.ui(self.cmdlog_write, f"✅ Carro {name.upper()} finalizado")
+			except Exception as e:
+				self.ui(self.cmdlog_write, f"❌ Erro em {name.upper()} ({ip}): {e}")
+			finally:
+				if client:
+					client.close()
+
+	########################################
+	# Execução remota (aba 3)
+	########################################
+	def select_data_destination(self):
+		directory = filedialog.askdirectory(
+			title="Selecione onde salvar os dados dos experimentos"
+		)
+
+		if directory:
+			self.data_dest_entry.delete(0, "end")
+			self.data_dest_entry.insert(0, directory)
+
+	########################################
+	def collect_data(self):
+
+		targets = self.get_selected_devices()
+
+		if not targets:
+			messagebox.showinfo(
+				"Nenhum alvo",
+				"Selecione pelo menos uma Raspberry com IP."
+			)
+			return
+
+		local_base = self.data_dest_entry.get().strip()
+
+		if not local_base:
+			messagebox.showinfo(
+				"Destino inválido",
+				"Selecione uma pasta para salvar os dados."
+			)
+			return
+
+		os.makedirs(local_base, exist_ok=True)
+
+		threading.Thread(
+			target=self._collect_data,
+			args=(targets, local_base),
+			daemon=True
+		).start()
+	
+	########################################
+	def _sftp_download_directory_contents(self, sftp, remote_dir, local_dir):
+		os.makedirs(local_dir, exist_ok=True)
+		for entry in sftp.listdir_attr(remote_dir):
+			remote_path = posixpath.join(remote_dir, entry.filename)
+			local_path = os.path.join(local_dir, entry.filename)
+			if stat.S_ISDIR(entry.st_mode):
+				self._sftp_download_directory_contents(sftp, remote_path, local_path)
+			else:
+				sftp.get(remote_path, local_path)
+
+	########################################
+	def _collect_data(self, targets, local_base):
+		remote_workdir = (self.dest_entry.get().strip() or DEFAULT_DEST).rstrip("/")
+		remote_logs = posixpath.join(remote_workdir, "logs")
+
+		for name, ip in targets:
+			local_dest = os.path.join(local_base, name)
+			os.makedirs(local_dest, exist_ok=True)
+			self.ui(self.datalog_write, f"📥 Coletando dados de {name.upper()} ({ip})...")
+
+			client = None
+			sftp = None
+			try:
+				client = self._connect_ssh(ip)
+				sftp = client.open_sftp()
+				self._sftp_download_directory_contents(sftp, remote_logs, local_dest)
+				self.ui(self.datalog_write, f"✅ Dados de {name.upper()} coletados.")
+			except FileNotFoundError:
+				self.ui(self.datalog_write, f"❌ Pasta remota não encontrada: {remote_logs}")
+			except Exception as e:
+				self.ui(self.datalog_write, f"❌ Erro em {name.upper()} ({ip}): {e}")
+			finally:
+				if sftp:
+					sftp.close()
+				if client:
+					client.close()
+
+		self.ui(self.datalog_write, "🏁 Coleta finalizada.")
+	
+	########################################
+	def datalog_write(self, text):
+		self.data_log.configure(state="normal")
+		self.data_log.insert("end", text + "\n")
+		self.data_log.see("end")
+		self.data_log.configure(state="disabled")
+
+	########################################
+	def update_plot(self):
+
+		self.ax.clear()
+
+		plot_type = self.plot_var.get()
+
+		# configura os eixos mesmo sem dados
+		if plot_type == "Velocidade":
+			self.ax.set_xlabel("Tempo [s]")
+			self.ax.set_ylabel("Velocidade [m/s]")
+
+		elif plot_type == "Aceleração / Controle":
+			self.ax.set_xlabel("Tempo [s]")
+			self.ax.set_ylabel("a / u [m/s²]")
+
+		elif plot_type == "Velocidade angular":
+			self.ax.set_xlabel("Tempo [s]")
+			self.ax.set_ylabel("Velocidade angular [rad/s]")
+
+		elif plot_type == "Orientação":
+			self.ax.set_xlabel("Tempo [s]")
+			self.ax.set_ylabel("Orientação [rad]")
+
+		elif plot_type == "Trajetória XY":
+			self.ax.set_xlabel("x [m]")
+			self.ax.set_ylabel("y [m]")
+			self.ax.set_aspect("equal", adjustable="datalim")
+
+		# plota os dados, caso existam
+		for name, data in self.telemetry.items():
+
+			if plot_type == "Velocidade":
+
+				self.ax.plot(
+					data["t"],
+					data["v"],
+					label=f"{name.upper()} - v"
+				)
+
+				self.ax.plot(
+					data["t"],
+					data["vref"],
+					"--",
+					label=f"{name.upper()} - vref"
+				)
+
+			elif plot_type == "Aceleração / Controle":
+
+				self.ax.plot(
+					data["t"],
+					data["a"],
+					label=f"{name.upper()} - a"
+				)
+
+				self.ax.plot(
+					data["t"],
+					data["u"],
+					"--",
+					label=f"{name.upper()} - u"
+				)
+
+			elif plot_type == "Velocidade angular":
+
+				self.ax.plot(
+					data["t"],
+					data["w"],
+					label=f"{name.upper()} - w"
+				)
+
+			elif plot_type == "Orientação":
+
+				self.ax.plot(
+					data["t"],
+					data["th"],
+					label=f"{name.upper()} - θ"
+				)
+
+			elif plot_type == "Trajetória XY":
+
+				self.ax.plot(
+					data["x"],
+					data["y"],
+					label=name.upper()
+				)
+
+		if self.telemetry:
+			self.ax.legend()
+
+		self.ax.grid(True)
+		self.canvas.draw_idle()
+	
+########################################
+# Execução
+########################################
+if __name__ == "__main__":
+	app = RsyncGUI()
+	app.mainloop()
