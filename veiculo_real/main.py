@@ -49,15 +49,14 @@ def vision_func(car, vision_data, stop_event):
 ########################################
 if __name__ == "__main__":
 
-	parameters = {
-		'ts'                   : 20.0,
-		'save'                 : True,
-		'logfile'              : 'logs/',
-		'camera'               : False,
-		'ultrasonic_steering'  : False,
-		'us_buzzer'            : False,
-		'initial_position'     : [0, 0, np.deg2rad(0)]
-	}
+	parameters = {	
+				'ts'					: 20.0, 	# tempo da execucao
+				'save'					: True,		# salva dados da trajetoria
+				'logfile'				: 'logs/',	# log file
+				'camera'				: False,	# habilitar camera e thread de visao
+				'us_buzzer'				: True,		# aviso sonoro para objetos proximos
+				'initial_position'		: [0, 0, np.deg2rad(0)]	# (x, y, theta) configuracao inicial
+			}
 
 	car = Car(parameters)
 	
