@@ -46,6 +46,37 @@ COLORS = {
 
 CAR_ICON = "🚗 "
 
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+def parse_telemetry_line(line: str):
+	"""Converte uma linha DATA no protocolo oficial da telemetria FVA.
+
+	Formato esperado:
+	DATA,t,x,y,v,vref,a,u,w,th
+	"""
+	clean_line = ANSI_ESCAPE_RE.sub("", line).strip()
+	parts = [p.strip() for p in clean_line.split(",")]
+
+	if len(parts) != 10 or parts[0] != "DATA":
+		raise ValueError(
+			f"esperados 10 campos iniciando por DATA, recebidos {len(parts)}"
+		)
+
+	_, t, x, y, v, vref, a, u, w, th = parts
+
+	return {
+		"t": float(t),
+		"x": float(x),
+		"y": float(y),
+		"v": float(v),
+		"vref": float(vref),
+		"a": float(a),
+		"u": float(u),
+		"w": float(w),
+		"th": float(th),
+	}
+
+
 ########################################
 # Utilitários de rede multiplataforma
 ########################################
@@ -753,39 +784,26 @@ class RsyncGUI(tk.Tk):
 					wrapped = f'cd "{remote_workdir}" && {raw_cmd}'
 					self.ui(self.cmdlog_write, f"$ {wrapped}")
 
-					stdin, stdout, stderr = client.exec_command(wrapped, get_pty=False)
+					stdin, stdout, stderr = client.exec_command(wrapped, get_pty=True)
 					for line in iter(stdout.readline, ""):
 						line = line.rstrip("\r\n")
 						if not line:
 							continue
 
-						# Limpa sequências ANSI/controle antes de interpretar a telemetria
-						line_clean = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line).strip()
-
-						if line_clean.startswith("DATA,"):
+						if ANSI_ESCAPE_RE.sub("", line).lstrip().startswith("DATA,"):
 							try:
-								parts = [p.strip() for p in line_clean.split(",")]
-								if len(parts) != 10:
-									raise ValueError(f"esperados 10 campos, recebidos {len(parts)}")
-								_, t, x, y, v, vref, a, u, w, th = parts
+								sample = parse_telemetry_line(line)
 								if name not in self.telemetry:
 									self.telemetry[name] = {
 										"t": [], "x": [], "y": [], "v": [], "vref": [],
 										"a": [], "u": [], "w": [], "th": []
 									}
 								data = self.telemetry[name]
-								data["t"].append(float(t))
-								data["x"].append(float(x))
-								data["y"].append(float(y))
-								data["v"].append(float(v))
-								data["vref"].append(float(vref))
-								data["a"].append(float(a))
-								data["u"].append(float(u))
-								data["w"].append(float(w))
-								data["th"].append(float(th))
+								for key, value in sample.items():
+									data[key].append(value)
 								self.after(0, self.update_plot)
-							except ValueError:
-								self.ui(self.cmdlog_write, f"[{name.upper()}] Telemetria inválida: {line_clean}")
+							except ValueError as e:
+								self.ui(self.cmdlog_write, f"[{name.upper()}] Telemetria inválida: {e} | {line!r}")
 						else:
 							self.ui(self.cmdlog_write, f"[{name.upper()}] {line}")
 
