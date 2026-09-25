@@ -20,7 +20,6 @@ except ImportError:
 # Canais de entradas dos servos
 SERVO_STEERING  	= 0
 SERVO_THROTTLE  	= 1
-SERVO_ULTRASONIC	= 8
 
 ZERO_STERRING_ANGLE = np.deg2rad(100.0)
 MAX_STERRING_ANGLE  = np.deg2rad(20.0)
@@ -41,7 +40,7 @@ class Gear(Enum):
 class Servos:
 	########################################
 	# construtor
-	def __init__(self, steering=0.0, throttle=0.0, velmax=1.5, dt=0.03, ultrasonic=True):
+	def __init__(self, steering=0.0, throttle=0.0, velmax=1.5, dt=0.03):
 		
 		# lock de secao critica
 		self.lock = threading.Lock()
@@ -66,8 +65,6 @@ class Servos:
 		#########################
 		# estercamento
 		#########################
-		# define se o ultrasom vai se mover junto com o estercamento
-		self.ultrasonic = ultrasonic
 		# cria filtro de estercamento
 		self.st_filt = filter.MovingAverage(n=10, initial=steering)
 		# inicializa o estercamento
@@ -165,13 +162,9 @@ class Servos:
 			
 			with self.lock:
 				st_pwm = self.st_pwm
-				pan_pwm = self.pan_pwm
 				
 			# envia comando de estercamento
 			self._set_servo(SERVO_STEERING, st_pwm)
-			
-			# envia comando de pan da camera/ultrasom
-			self._set_servo(SERVO_ULTRASONIC, pan_pwm)
 			
 			with self.lock:
 				if self.gear == Gear.FORWARD:
@@ -232,39 +225,18 @@ class Servos:
 		# suaviza comando de esterçamento
 		st = self.st_filt.filter(st)
 
-		# camera/ultrassom acompanha o esterçamento
-		if self.ultrasonic:
-			self._set_pan(st)
-		else:
-			self._set_pan(0.0)
-
 		with self.lock:
 			self.st_pwm = GAIN_STERRING_ANGLE * (st + self.trim_steer) + ZERO_STERRING_ANGLE
-	
-	########################################
-	# angulo de pan da camera/ultrasom (por enquanto nao deve ser operado externamente)
-	def _set_pan(self, ang):
-		
-		half_scale = np.deg2rad(90.0)
-		ang = np.clip(ang, -half_scale, half_scale)
-
-		# angulo centrado em zero
-		pan_pwm = ang + self.trim_pan + half_scale
-		with self.lock:
-			self.pan_pwm = pan_pwm
         
 	########################################
 	# seta o ajuste fino dos servos (em radianos)
-	def set_trim(self, steer=0.0, throttle=0.0, pan=0.0):
+	def set_trim(self, steer=0.0, throttle=0.0):
 		
 		# trim do estercamento
 		self.trim_steer = np.clip(steer, -np.deg2rad(10.0), np.deg2rad(10.0))
 		
 		# trim da tracao
 		self.trim_throttle = np.clip(throttle, -np.deg2rad(20.0), np.deg2rad(20.0))
-		
-		# trim do ultrasom
-		self.trim_pan = np.clip(pan, -np.deg2rad(20.0), np.deg2rad(20.0))
 		
 	########################################
 	# mode de marcha re
@@ -314,7 +286,7 @@ if __name__ == "__main__":
 	#ser._set_servo(SERVO_THROTTLE, x) #com x = 90 (neutro), 180 (maximo), 0 (minimo)
 	
 	# cria servos
-	ser = Servos(ultrasonic=True)
+	ser = Servos()
 	print('Servos ok...')
 	
 	try:

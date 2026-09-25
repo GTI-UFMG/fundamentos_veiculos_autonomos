@@ -124,7 +124,7 @@ class Car:
 		
 		# atuadores de estercamento, aceleracao e ultrasom/camera	
 		try:
-			self.atuador = servos.Servos(ultrasonic=self.parameters['ultrasonic_steering'])
+			self.atuador = servos.Servos()
 		except Exception as e:
 			print(f"\033[31mErro nos servos: {e}\033[0m", flush=True)
 			raise
@@ -628,8 +628,7 @@ if __name__ == "__main__":
 				'save'					: True,		# salva dados da trajetoria
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# habilitar camera e thread de visao
-				'ultrasonic_steering' 	: False,	# mover ultrasom com estercamento
-				'us_buzzer'				: True,	# aviso sonoro para objetos proximos
+				'us_buzzer'				: True,		# aviso sonoro para objetos proximos
 				'initial_position'		: [0, 0, np.deg2rad(0)]	# (x, y, theta) configuracao inicial
 			}
 	
