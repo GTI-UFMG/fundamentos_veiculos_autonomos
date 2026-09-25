@@ -10,7 +10,6 @@
 ########################################
 # GUI Tkinter para envio de arquivos e execução remota em múltiplas Raspberry Pis,
 # com senha SSH padrão (DEFAULT_PASS) pré-preenchida no campo.
-
 import os
 import re
 import posixpath
@@ -362,7 +361,16 @@ class RsyncGUI(tk.Tk):
 		cmds_frame = ttk.Frame(parent)
 		cmds_frame.pack(fill="x", padx=10, pady=4)
 		ttk.Label(cmds_frame, text="Comandos (1 por linha):").pack(anchor="w")
-		self.cmd_text = scrolledtext.ScrolledText(cmds_frame, height=6)
+		
+		self.cmd_text = scrolledtext.ScrolledText(
+			cmds_frame,
+			height=6,
+			bg="black",
+			fg="white",
+			insertbackground="white",
+			font=("Courier", 11)
+		)
+
 		self.cmd_text.insert(
 								"end",
 								'pkill -f "python3.*main.py"\n'
@@ -443,12 +451,27 @@ class RsyncGUI(tk.Tk):
 		).pack(anchor="w")
 
 		self.cmd_log = scrolledtext.ScrolledText(
-			terminal_frame
+			terminal_frame,
+			bg="black",
+			fg="white",
+			insertbackground="white",
+			font=("Courier", 11)
 		)
 		self.cmd_log.pack(
 			fill="both",
 			expand=True
 		)
+		
+		# cores ANSI do terminal
+		self.cmd_log.tag_configure("ansi_black", foreground="#555555")
+		self.cmd_log.tag_configure("ansi_red", foreground="#ff5555")
+		self.cmd_log.tag_configure("ansi_green", foreground="#55ff55")
+		self.cmd_log.tag_configure("ansi_yellow", foreground="#ffff55")
+		self.cmd_log.tag_configure("ansi_blue", foreground="#5555ff")
+		self.cmd_log.tag_configure("ansi_magenta", foreground="#ff55ff")
+		self.cmd_log.tag_configure("ansi_cyan", foreground="#55ffff")
+		self.cmd_log.tag_configure("ansi_white", foreground="white")
+
 		self.cmd_log.configure(state="disabled")
 
 		# adiciona os dois lados
@@ -548,7 +571,63 @@ class RsyncGUI(tk.Tk):
 	########################################
 	def cmdlog_write(self, text):
 		self.cmd_log.configure(state="normal")
-		self.cmd_log.insert("end", text + "\n")
+
+		ansi_colors = {
+			"30": "ansi_black",
+			"31": "ansi_red",
+			"32": "ansi_green",
+			"33": "ansi_yellow",
+			"34": "ansi_blue",
+			"35": "ansi_magenta",
+			"36": "ansi_cyan",
+			"37": "ansi_white",
+
+			# cores ANSI brilhantes
+			"90": "ansi_black",
+			"91": "ansi_red",
+			"92": "ansi_green",
+			"93": "ansi_yellow",
+			"94": "ansi_blue",
+			"95": "ansi_magenta",
+			"96": "ansi_cyan",
+			"97": "ansi_white",
+		}
+
+		current_tag = None
+		pos = 0
+
+		for match in ANSI_ESCAPE_RE.finditer(text):
+
+			# texto antes do código ANSI
+			part = text[pos:match.start()]
+
+			if part:
+				if current_tag:
+					self.cmd_log.insert("end", part, current_tag)
+				else:
+					self.cmd_log.insert("end", part)
+
+			# interpreta o código ANSI
+			codes = match.group()[2:-1].split(";")
+
+			for code in codes:
+				if code == "0":
+					current_tag = None
+				elif code in ansi_colors:
+					current_tag = ansi_colors[code]
+
+			pos = match.end()
+
+		# restante da linha
+		part = text[pos:]
+
+		if part:
+			if current_tag:
+				self.cmd_log.insert("end", part, current_tag)
+			else:
+				self.cmd_log.insert("end", part)
+
+		self.cmd_log.insert("end", "\n")
 		self.cmd_log.see("end")
 		self.cmd_log.configure(state="disabled")
 
