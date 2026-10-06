@@ -227,6 +227,18 @@ class RsyncGUI(tk.Tk):
 		).pack(side="right")
 
 		########################################
+		# Pasta remota global
+		########################################
+		workdir_frame = ttk.Frame(self)
+		workdir_frame.pack(fill="x", padx=15, pady=(3, 8))
+
+		ttk.Label(workdir_frame, text="Pasta remota:").pack(side="left")
+		self.dest_entry = ttk.Entry(workdir_frame)
+		self.dest_entry.insert(0, DEFAULT_DEST)
+		self.dest_entry.pack(side="left", fill="x", expand=True, padx=(8, 6))
+		ttk.Button(workdir_frame, text="Restaurar padrão", command=self.restore_default_workdir).pack(side="left")
+
+		########################################
 		# Abas
 		########################################	
 		notebook = ttk.Notebook(self)
@@ -253,6 +265,11 @@ class RsyncGUI(tk.Tk):
 	########################################
 	def ui(self, func, *args, **kwargs):
 		self.after(0, lambda: func(*args, **kwargs))
+
+	########################################
+	def restore_default_workdir(self):
+		self.dest_entry.delete(0, "end")
+		self.dest_entry.insert(0, DEFAULT_DEST)
 	
 	########################################
 	def _build_tab_home(self, parent):
@@ -326,14 +343,6 @@ class RsyncGUI(tk.Tk):
 		self.files_listbox = tk.Listbox(parent, height=6, selectmode="extended")
 		self.files_listbox.pack(fill="x", padx=10, pady=(2, 6))
 
-		# Destino remoto (USADO TAMBÉM NA ABA DE COMANDOS)
-		dest_frame = ttk.Frame(parent)
-		dest_frame.pack(fill="x", padx=10, pady=6)
-		ttk.Label(dest_frame, text="Destino na Raspberry (também será o diretório de trabalho dos comandos):").pack(side="left")
-		self.dest_entry = ttk.Entry(dest_frame)
-		self.dest_entry.insert(0, DEFAULT_DEST)
-		self.dest_entry.pack(side="left", fill="x", expand=True, padx=8)
-
 		# SSH / SFTP (Paramiko)
 		opt = ttk.Frame(parent)
 		opt.pack(fill="x", padx=10, pady=6)
@@ -369,7 +378,7 @@ class RsyncGUI(tk.Tk):
 	def _build_tab_cmds(self, parent):
 		ttk.Label(parent, text="Executar comandos remotos no veículo ativo").pack(anchor="w", padx=10, pady=(10, 4))
 
-		hint = ttk.Label(parent, text="Obs.: os comandos serão executados dentro de: (aba Enviar Arquivos) → campo 'Destino na Raspberry'",
+		hint = ttk.Label(parent, text="Os comandos serão executados na pasta remota definida no topo da janela.",
 						 foreground="#888")
 		hint.pack(anchor="w", padx=10, pady=(0, 6))
 
@@ -509,7 +518,7 @@ class RsyncGUI(tk.Tk):
 
 		hint = ttk.Label(
 			parent,
-			text="O teste é executado no mesmo diretório remoto definido na aba 'Enviar Arquivos'.",
+			text="O teste é executado na pasta remota definida no topo da janela.",
 			foreground="#888"
 		)
 		hint.pack(anchor="w", padx=10, pady=(0, 8))
