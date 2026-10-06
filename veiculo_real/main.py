@@ -7,17 +7,24 @@
 # DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
-# -*- coding: utf-8 -*-
+
 from fva_car import Car
 import numpy as np
 import matplotlib.pyplot as plt
 import threading
 import time
 
+
 MAIN_VEL = 0.7
+
+# Frequencia da telemetria enviada para a GUI [Hz]
+TELEMETRY_HZ = 10.0
+TELEMETRY_PERIOD = 1.0 / TELEMETRY_HZ
+
 
 ########################################
 # thread de visao
+########################################
 def vision_func(car, vision_data, stop_event):
 
 	W, H = car.cam.get_resolution()
@@ -43,13 +50,14 @@ def vision_func(car, vision_data, stop_event):
 		cx = point[0] - W/2
 
 		vision_data["refste"] = -np.deg2rad(20.0*cx/(W/2))
-		
+
+
 ########################################
 # main
 ########################################
 if __name__ == "__main__":
 
-	parameters = {	
+	parameters = {
 				'ts'					: 20.0, 	# tempo da execucao
 				'save'					: True,		# salva dados da trajetoria
 				'logfile'				: 'logs/',	# log file
@@ -59,83 +67,138 @@ if __name__ == "__main__":
 			}
 
 	car = Car(parameters)
-	
-	vision_data = {"refste": 0.0, "frame": None}
+
+	vision_data = {
+		"refste": 0.0,
+		"frame": None
+	}
 
 	stop_event = threading.Event()
 	thread_vision = None
 
 	try:
+
 		car.start_mission()
 
+		########################################
 		# inicia visao somente se solicitada
+		########################################
 		if parameters['camera']:
+
 			thread_vision = threading.Thread(
-												target=vision_func,
-												args=(car, vision_data, stop_event),
-												daemon=True
-											)
+				target=vision_func,
+				args=(car, vision_data, stop_event),
+				daemon=True
+			)
+
 			thread_vision.start()
 
 		if parameters['camera']:
 			plt.ion()
 			plt.figure(1)
 
+		########################################
+		# temporizadores independentes
+		########################################
 		t_plot = time.monotonic()
+		t_telemetry = time.monotonic()
 
+		########################################
 		# controle fica na thread principal
+		########################################
 		while car.t < parameters['ts']:
 
+			########################################
 			# atualiza sensores
+			########################################
 			if not car.step():
 				break
 
+			########################################
 			# direcao
-			car.set_steer(vision_data["refste"])
+			########################################
+			car.set_steer(
+				vision_data["refste"]
+			)
 
+			########################################
 			# ultrassom
+			########################################
 			dist, valid = car.get_distance()
 
 			if (not valid) or (dist < 0.20):
-				print(f"Colisao: distance {dist:.2f} [m]")
+
+				print(
+					f"Colisao: distance {dist:.2f} [m]"
+				)
+
 				car.set_vel(0.0)
+
 			else:
+
 				car.set_vel(MAIN_VEL)
 
-			# telemetria para plots remotos
-			print(
-				f"DATA,"
-				f"{car.t:.2f},"
-				f"{car.p[0]:.2f},"
-				f"{car.p[1]:.2f},"
-				f"{car.v:.2f},"
-				f"{car.vref:.2f},"
-				f"{car.a:.2f},"
-				f"{car.u:.2f},"
-				f"{car.w:.2f},"
-				f"{car.th:.2f}",
-				flush=True
-			)
+			########################################
+			# telemetria para interface remota
+			#
+			# O controle continua executando em
+			# todas as iteracoes do loop.
+			#
+			# Apenas a telemetria enviada para
+			# a GUI e subamostrada para 10 Hz.
+			########################################
+			now = time.monotonic()
 
+			if now - t_telemetry >= TELEMETRY_PERIOD:
+
+				print(
+					f"DATA,"
+					f"{car.t:.1f},"
+					f"{car.p[0]:.1f},"
+					f"{car.p[1]:.1f},"
+					f"{car.v:.1f},"
+					f"{car.vref:.1f},"
+					f"{car.a:.1f},"
+					f"{car.u:.1f},"
+					f"{car.w:.2f},"
+					f"{car.th:.2f}",
+					flush=True
+				)
+
+				t_telemetry = now
+
+			########################################
 			# atualiza grafico aproximadamente 1 Hz
-			if time.monotonic() - t_plot >= 1.0:
+			########################################
+			if now - t_plot >= 1.0:
 
 				if parameters['camera']:
+
 					frame = vision_data["frame"]
 
 					if frame is not None:
+
 						plt.cla()
-						plt.imshow(frame, cmap='gray')
+						plt.imshow(
+							frame,
+							cmap='gray'
+						)
+
 						plt.pause(0.001)
 
-				t_plot = time.monotonic()
+				t_plot = now
 
+		########################################
 		# salva dados
+		########################################
 		if parameters['save']:
 			car.save()
 
 	finally:
+
+		########################################
 		# termina a thread de visao
+		########################################
 		stop_event.set()
 
 		if thread_vision is not None:
