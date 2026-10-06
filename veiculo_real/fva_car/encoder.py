@@ -376,15 +376,16 @@ if __name__ == "__main__":
 			status = "OK" if valid else "INVALIDA"
 
 			print(
-				f"Vel = {vel:7.3f} m/s | "
-				f"RC Dir = {rc_dir_raw:4d} us ({rc_dir:+.2f}) | "
-				f"RC Acel = {rc_acel_raw:4d} us ({rc_acel:+.2f}) | "
+				f"Vel = {vel:.1f} m/s | "
+				f"RC Dir = {rc_dir:+.2f} | " #({rc_dir_raw:4d} us) | "
+				f"RC Acel = {rc_acel:+.2f} | " #({rc_acel_raw:4d} us) | "
 				f"Direcao = {modo_dir:4s} | "
 				f"Tracao = {modo_tracao:4s} | "
-				f"{status}"
+				f"{status}",
+				flush=True
 			)
 
-			time.sleep(0.5)
+			time.sleep(0.1)
 
 	except KeyboardInterrupt:
 		print("\nTeste encerrado.")
