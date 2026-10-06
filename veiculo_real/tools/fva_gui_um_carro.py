@@ -17,6 +17,8 @@ import platform
 import subprocess
 import threading
 import stat
+import time
+import queue
 
 import paramiko
 import tkinter as tk
@@ -155,7 +157,17 @@ class RsyncGUI(tk.Tk):
 		self.devices = {}
 		self.selected_files = []
 		self.active_device = None
+
+		# Estado exclusivo da aba "Testar Modulos"
+		self.test_client = None
+		self.test_channel = None
+		self.test_running = False
+		self.test_output_queue = queue.Queue()
+		self.test_status_pending = None
+		self.test_status_mark = None
+
 		self._build_ui()
+		self.after(50, self._flush_test_output)
 		# preenche a senha padrão (se houver)
 		if DEFAULT_PASS:
 			self.pass_entry.insert(0, DEFAULT_PASS)
@@ -223,16 +235,19 @@ class RsyncGUI(tk.Tk):
 		self.tab_home = tk.Frame(notebook, bg="black")
 		self.tab_files = ttk.Frame(notebook)
 		self.tab_cmds = ttk.Frame(notebook)
+		self.tab_tests = ttk.Frame(notebook)
 		self.tab_data = ttk.Frame(notebook)
 
 		notebook.add(self.tab_home, text="🏠 Início")
 		notebook.add(self.tab_files, text="📂 Enviar Arquivos")
 		notebook.add(self.tab_cmds, text="💻 Executar Comandos")
+		notebook.add(self.tab_tests, text="🧪 Testar Módulos")
 		notebook.add(self.tab_data, text="📊 Coletar Dados")
 
 		self._build_tab_home(self.tab_home)
 		self._build_tab_files(self.tab_files)
 		self._build_tab_cmds(self.tab_cmds)
+		self._build_tab_tests(self.tab_tests)
 		self._build_tab_data(self.tab_data)
 
 	########################################
@@ -479,6 +494,329 @@ class RsyncGUI(tk.Tk):
 		bottom.add(terminal_frame, weight=1)
 
 	########################################
+	def _build_tab_tests(self, parent):
+
+		ttk.Label(
+			parent,
+			text="Testar módulos individuais da biblioteca fva_car"
+		).pack(anchor="w", padx=10, pady=(10, 4))
+
+		self.test_device_label = ttk.Label(
+			parent,
+			text="Veículo: aguardando detecção..."
+		)
+		self.test_device_label.pack(anchor="w", padx=10, pady=(0, 8))
+
+		hint = ttk.Label(
+			parent,
+			text="O teste é executado no mesmo diretório remoto definido na aba 'Enviar Arquivos'.",
+			foreground="#888"
+		)
+		hint.pack(anchor="w", padx=10, pady=(0, 8))
+
+		controls = ttk.Frame(parent)
+		controls.pack(fill="x", padx=10, pady=6)
+
+		ttk.Label(controls, text="Módulo:").pack(side="left")
+
+		# Começamos apenas com o módulo já validado.
+		# Novos testes podem ser acrescentados aqui depois.
+		self.test_modules = {
+			"Encoder / RC / Chaves": "fva_car/encoder.py",
+		}
+
+		self.test_module_var = tk.StringVar(
+			value="Encoder / RC / Chaves"
+		)
+
+		self.test_module_combo = ttk.Combobox(
+			controls,
+			textvariable=self.test_module_var,
+			values=list(self.test_modules.keys()),
+			state="readonly",
+			width=28
+		)
+		self.test_module_combo.pack(side="left", padx=(8, 16))
+
+		self.test_run_button = ttk.Button(
+			controls,
+			text="▶ Executar",
+			command=self.run_module_test
+		)
+		self.test_run_button.pack(side="left", padx=4)
+
+		self.test_stop_button = ttk.Button(
+			controls,
+			text="■ Parar",
+			command=self.stop_module_test,
+			state="disabled"
+		)
+		self.test_stop_button.pack(side="left", padx=4)
+
+		ttk.Button(
+			controls,
+			text="Limpar",
+			command=self.clear_test_log
+		).pack(side="left", padx=4)
+
+		ttk.Label(
+			parent,
+			text="Saída do teste:"
+		).pack(anchor="w", padx=10, pady=(10, 2))
+
+		self.test_log = scrolledtext.ScrolledText(
+			parent,
+			bg="black",
+			fg="white",
+			insertbackground="white",
+			font=("Courier", 11)
+		)
+		self.test_log.pack(
+			fill="both",
+			expand=True,
+			padx=10,
+			pady=(0, 10)
+		)
+		self.test_log.configure(state="disabled")
+
+	########################################
+	def _queue_test_output(self, text):
+		self.test_output_queue.put(text)
+
+	########################################
+	def _flush_test_output(self):
+		lines = []
+		latest_status = None
+
+		try:
+			while len(lines) < 200:
+				text = self.test_output_queue.get_nowait()
+
+				if text.lstrip().startswith("Vel ="):
+					latest_status = text
+				else:
+					lines.append(text)
+		except queue.Empty:
+			pass
+
+		if latest_status is not None:
+			self.test_status_pending = latest_status
+
+		if lines or self.test_status_pending is not None:
+			self.test_log.configure(state="normal")
+
+			# Se já existe uma linha dinâmica, remove-a antes de acrescentar
+			# mensagens normais. Assim ela permanece sempre no final.
+			if self.test_status_mark is not None:
+				try:
+					self.test_log.delete(self.test_status_mark, "end-1c")
+				except tk.TclError:
+					pass
+				self.test_status_mark = None
+
+			if lines:
+				self.test_log.insert("end", "\n".join(lines) + "\n")
+
+			if self.test_status_pending is not None:
+				self.test_status_mark = self.test_log.index("end-1c")
+				self.test_log.insert("end", self.test_status_pending)
+
+			self.test_log.see("end")
+			self.test_log.configure(state="disabled")
+
+		self.after(50, self._flush_test_output)
+
+	########################################
+	def testlog_write(self, text):
+		self.test_log.configure(state="normal")
+		self.test_log.insert("end", text + "\n")
+		self.test_log.see("end")
+		self.test_log.configure(state="disabled")
+
+	########################################
+	def clear_test_log(self):
+		self.test_log.configure(state="normal")
+		self.test_log.delete("1.0", "end")
+		self.test_log.configure(state="disabled")
+		self.test_status_pending = None
+		self.test_status_mark = None
+
+	########################################
+	def run_module_test(self):
+
+		if self.test_running:
+			messagebox.showinfo(
+				"Teste em execução",
+				"Já existe um teste de módulo em execução."
+			)
+			return
+
+		targets = self.get_selected_devices()
+
+		if not targets:
+			messagebox.showinfo(
+				"Nenhum alvo",
+				"Nenhum veículo foi detectado. Atualize os IPs e tente novamente."
+			)
+			return
+
+		module_name = self.test_module_var.get()
+		module_path = self.test_modules.get(module_name)
+
+		if not module_path:
+			messagebox.showerror(
+				"Módulo inválido",
+				"O módulo selecionado não foi encontrado."
+			)
+			return
+
+		name, ip = targets[0]
+
+		self.test_running = True
+		self.test_status_pending = None
+		self.test_status_mark = None
+		self.test_run_button.configure(state="disabled")
+		self.test_stop_button.configure(state="normal")
+		self.test_device_label.configure(
+			text=f"Veículo: {name.upper()} — {ip}"
+		)
+
+		self.testlog_write("")
+		self.testlog_write("=" * 60)
+		self.testlog_write(f"Teste: {module_name}")
+		self.testlog_write(f"Veículo: {name.upper()} ({ip})")
+		self.testlog_write("=" * 60)
+
+		threading.Thread(
+			target=self._run_module_test,
+			args=(name, ip, module_path),
+			daemon=True
+		).start()
+
+	########################################
+	def _run_module_test(self, name, ip, module_path):
+
+		remote_workdir = (
+			self.dest_entry.get().strip() or DEFAULT_DEST
+		).rstrip("/")
+
+		client = None
+		channel = None
+
+		try:
+			client = self._connect_ssh(ip)
+
+			command = (
+				f'cd "{remote_workdir}" && '
+				f'python3 -u "{module_path}"'
+			)
+
+			self._queue_test_output(f"$ {command}")
+			self._queue_test_output("")
+
+			transport = client.get_transport()
+			channel = transport.open_session()
+
+			# Saída sem buffer; não é necessário pseudo-terminal.
+			channel.exec_command(command)
+
+			self.test_client = client
+			self.test_channel = channel
+
+			buffer = ""
+
+			while self.test_running and not channel.exit_status_ready():
+
+				if channel.recv_ready():
+					data = channel.recv(4096).decode(
+						"utf-8",
+						errors="replace"
+					)
+					buffer += data
+
+					while "\n" in buffer:
+						line, buffer = buffer.split("\n", 1)
+						self._queue_test_output(
+							line.rstrip("\r")
+						)
+				else:
+					time.sleep(0.03)
+
+			while channel.recv_ready():
+				buffer += channel.recv(4096).decode(
+					"utf-8",
+					errors="replace"
+				)
+
+			if buffer:
+				for line in buffer.splitlines():
+					self._queue_test_output(
+						line.rstrip("\r")
+					)
+
+			if self.test_running:
+				rc = channel.recv_exit_status()
+				self._queue_test_output(
+					f"\nTeste finalizado (código {rc})."
+				)
+			else:
+				self._queue_test_output(
+					"\nTeste interrompido."
+				)
+
+		except Exception as e:
+			# Fechar o canal pelo botão Parar pode provocar uma exceção
+			# normal de transporte; nesse caso não mostramos como falha.
+			if self.test_running:
+				self._queue_test_output(
+					f"Erro no teste de {name.upper()} ({ip}): {e}"
+				)
+
+		finally:
+			try:
+				if channel:
+					channel.close()
+			except Exception:
+				pass
+
+			try:
+				if client:
+					client.close()
+			except Exception:
+				pass
+
+			self.test_channel = None
+			self.test_client = None
+			self.test_running = False
+
+			self.ui(
+				self.test_run_button.configure,
+				state="normal"
+			)
+			self.ui(
+				self.test_stop_button.configure,
+				state="disabled"
+			)
+
+	########################################
+	def stop_module_test(self):
+
+		if not self.test_running:
+			return
+
+		self.test_running = False
+
+		# Interrompe apenas o canal criado por esta aba.
+		# Não usa pkill e não interfere nas outras abas.
+		try:
+			if self.test_channel:
+				self.test_channel.close()
+		except Exception:
+			pass
+
+		self.test_stop_button.configure(state="disabled")
+
+	########################################
 	def _build_tab_data(self, parent):
 
 		ttk.Label(
@@ -721,6 +1059,10 @@ class RsyncGUI(tk.Tk):
 				fg=COLORS.get(name, "#00aa00")
 			)
 			self.ui(self.log_write, f"🚗 Veículo detectado: {name.upper()} ({ip})")
+			self.ui(
+				self.test_device_label.config,
+				text=f"Veículo: {name.upper()} — {ip}"
+			)
 		else:
 			self.ui(
 				self.active_device_label.config,
@@ -728,6 +1070,10 @@ class RsyncGUI(tk.Tk):
 				fg="#cc0000"
 			)
 			self.ui(self.log_write, "⚠️ Nenhum veículo encontrado.")
+			self.ui(
+				self.test_device_label.config,
+				text="Veículo: nenhum veículo encontrado"
+			)
 
 		self.ui(self.log_write, "✅ Atualização concluída.")
 
