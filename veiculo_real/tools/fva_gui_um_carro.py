@@ -402,7 +402,20 @@ class RsyncGUI(tk.Tk):
 							)
 		self.cmd_text.pack(fill="x", pady=4)
 
-		ttk.Button(parent, text="Executar", command=self.run_cmds_on_selected).pack(pady=6)
+		cmd_buttons = ttk.Frame(parent)
+		cmd_buttons.pack(fill="x", padx=10, pady=6)
+
+		ttk.Button(
+			cmd_buttons,
+			text="Executar",
+			command=self.run_cmds_on_selected
+		).pack(side="left", padx=(0, 6))
+
+		ttk.Button(
+			cmd_buttons,
+			text="Limpar terminal",
+			command=self.clear_cmd_log
+		).pack(side="left")
 
 		# area inferior: grafico e terminal lado a lado
 		bottom = ttk.PanedWindow(parent, orient="horizontal")
@@ -532,6 +545,7 @@ class RsyncGUI(tk.Tk):
 		# Novos testes podem ser acrescentados aqui depois.
 		self.test_modules = {
 			"Encoder / RC / Chaves": "fva_car/encoder.py",
+			"Ultrassom": "fva_car/ultrasonic.py",
 		}
 
 		self.test_module_var = tk.StringVar(
@@ -601,7 +615,10 @@ class RsyncGUI(tk.Tk):
 			while len(lines) < 200:
 				text = self.test_output_queue.get_nowait()
 
-				if text.lstrip().startswith("Vel ="):
+				if (
+					text.lstrip().startswith("Vel =")
+					or text.lstrip().startswith("Distancia =")
+				):
 					latest_status = text
 				else:
 					lines.append(text)
@@ -914,6 +931,12 @@ class RsyncGUI(tk.Tk):
 		self.log.insert("end", text + "\n")
 		self.log.see("end")
 		self.log.configure(state="disabled")
+
+	########################################
+	def clear_cmd_log(self):
+		self.cmd_log.configure(state="normal")
+		self.cmd_log.delete("1.0", "end")
+		self.cmd_log.configure(state="disabled")
 
 	########################################
 	def cmdlog_write(self, text):
