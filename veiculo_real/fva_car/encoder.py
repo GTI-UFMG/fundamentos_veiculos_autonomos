@@ -14,14 +14,35 @@ import serial
 import threading
 import time
 
+
 ########################################
 # Globais
 ########################################
+
 BAUDRATE        = 115200
 TIMEOUT         = 0.2
 REDUCAO_EIXO    = 7.80
 RAIO_RODA       = 0.08
 SENSOR_TIMEOUT  = 0.30
+
+
+########################################
+# Calibracao do receptor RC [us]
+########################################
+
+# Direcao
+RC_DIR_MIN      = 1170
+RC_DIR_CENTER   = 1490
+RC_DIR_MAX      = 1820
+
+# Acelerador / freio
+RC_ACEL_MIN     = 1210
+RC_ACEL_CENTER  = 1450
+RC_ACEL_MAX     = 1780
+
+# Zona morta do comando normalizado
+# +/- 5% em torno do centro
+RC_DEADZONE     = 0.05
 
 
 ########################################
@@ -179,19 +200,79 @@ class Encoder:
 
 
 	########################################
-	# retorna comandos mais recentes do radio
+	# normaliza um canal RC para [-1, +1]
 	#
-	# valores em microssegundos
+	# minimum -> -1
+	# center  ->  0
+	# maximum -> +1
+	#
+	# Aplica zona morta em torno de zero
+	# e reescala o restante para manter
+	# toda a faixa [-1, +1].
+	########################################
+	def normalize_rc(self, value, minimum, center, maximum):
+
+		# Normalizacao em dois trechos
+		if value <= center:
+			u = (value - center) / (center - minimum)
+		else:
+			u = (value - center) / (maximum - center)
+
+		# Limita a faixa
+		u = float(np.clip(u, -1.0, 1.0))
+
+		# Zona morta
+		if abs(u) <= RC_DEADZONE:
+			return 0.0
+
+		# Reescala o restante para evitar salto
+		# na saida da zona morta
+		if u > 0.0:
+			u = (u - RC_DEADZONE) / (1.0 - RC_DEADZONE)
+		else:
+			u = (u + RC_DEADZONE) / (1.0 - RC_DEADZONE)
+
+		return float(np.clip(u, -1.0, 1.0))
+
+
+	########################################
+	# retorna comandos normalizados do radio
+	#
+	# retorno:
+	# direcao, acelerador
+	#
+	# -1.0 = minimo
+	#  0.0 = centro
+	# +1.0 = maximo
 	########################################
 	def get_rc(self):
 
 		with self.lock:
-			return self.rc_direcao, self.rc_acelerador
+			rc_direcao = self.rc_direcao
+			rc_acelerador = self.rc_acelerador
+
+		direcao = self.normalize_rc(
+			rc_direcao,
+			RC_DIR_MIN,
+			RC_DIR_CENTER,
+			RC_DIR_MAX
+		)
+
+		acelerador = self.normalize_rc(
+			rc_acelerador,
+			RC_ACEL_MIN,
+			RC_ACEL_CENTER,
+			RC_ACEL_MAX
+		)
+
+		return direcao, acelerador
 
 
 	########################################
-	# retorna todos os dados
+	# retorna todos os dados crus
 	# util para diagnostico/testes
+	#
+	# RC permanece em microssegundos aqui.
 	########################################
 	def get_data(self):
 
@@ -271,6 +352,7 @@ if __name__ == "__main__":
 	print()
 	print("Teste: odometria + receptor RC + chaves")
 	print("Chaves: 0 = RC | 1 = AUTO")
+	print("RC normalizado: -1.0 a +1.0")
 	print("Ctrl+C para sair")
 	print()
 
@@ -279,12 +361,15 @@ if __name__ == "__main__":
 
 			(
 				vel,
-				rc_dir,
-				rc_acel,
+				rc_dir_raw,
+				rc_acel_raw,
 				sel_dir,
 				sel_tracao,
 				valid
 			) = enc.get_data()
+
+			# Valores normalizados
+			rc_dir, rc_acel = enc.get_rc()
 
 			modo_dir = "AUTO" if sel_dir else "RC"
 			modo_tracao = "AUTO" if sel_tracao else "RC"
@@ -292,14 +377,14 @@ if __name__ == "__main__":
 
 			print(
 				f"Vel = {vel:7.3f} m/s | "
-				f"RC Dir = {rc_dir:4d} us | "
-				f"RC Acel = {rc_acel:4d} us | "
+				f"RC Dir = {rc_dir_raw:4d} us ({rc_dir:+.2f}) | "
+				f"RC Acel = {rc_acel_raw:4d} us ({rc_acel:+.2f}) | "
 				f"Direcao = {modo_dir:4s} | "
 				f"Tracao = {modo_tracao:4s} | "
 				f"{status}"
 			)
 
-			time.sleep(0.1)
+			time.sleep(0.5)
 
 	except KeyboardInterrupt:
 		print("\nTeste encerrado.")
