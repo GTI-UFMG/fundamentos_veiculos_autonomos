@@ -98,6 +98,15 @@ class Car:
 		# comando de estercamento
 		self.st = 0.0
 		
+		# comandos do receptor RC
+		self.rc_direcao = 0.0
+		self.rc_acelerador = 0.0
+
+		# seletores de controle
+		# 0 = RC | 1 = AUTO
+		self.sel_direcao = 0
+		self.sel_tracao = 0
+		
 		# botao de emergencia
 		self.emergencia = True
 		
@@ -237,6 +246,12 @@ class Car:
 		# velocidade 
 		self.v_ant = self.v
 		self.v, self.w = self.get_vel()
+		
+		# comandos do receptor RC
+		self.rc_direcao, self.rc_acelerador = self.odometer.get_rc()
+
+		# modo selecionado pelas chaves
+		self.sel_direcao, self.sel_tracao = self.odometer.get_control_mode()
 
 		# aceleracao
 		self.a = self.get_accel()
@@ -416,9 +431,12 @@ class Car:
 	# seta torque do veiculo
 	def set_vel(self, vref):
 		
-		# ganhos
-		Kp = 0.4
-		Kd = 0.2
+		# modo RC
+		if self.sel_tracao == 0:
+			vref = self.rc_acelerador * CAR['VELMAX']
+			
+		# modo AUTO:
+		# usa diretamente a referencia recebida em vref
 
 		# define referencia e marcha
 		self._set_ref(vref)
@@ -430,6 +448,10 @@ class Car:
 		# aceleracao da magnitude
 		a_abs = np.sign(self.v) * self.a
 
+		# ganhos
+		Kp = 0.4
+		Kd = 0.2
+		
 		# controle PD
 		u = Kp*(vref_abs - v_abs) - Kd*a_abs
 		self.set_u(u)
@@ -471,15 +493,23 @@ class Car:
 		self.gear = self.atuador.get_gear()
 		
 	########################################
-	# seta steer do veiculo
+	# seta steer do veiculo	
 	def set_steer(self, st):
+
 		# emergencia
 		if self.emergencia:
 			st = 0.0
-		
+
+		# modo RC, modifica st recebido
+		elif self.sel_direcao == 0:
+			st = self.rc_direcao * CAR['STEERMAX']
+
+		# modo AUTO:
+		# usa diretamente a referencia recebida em st
+
 		# limita angulo de estercamento
 		self.st = np.clip(st, -CAR['STEERMAX'], CAR['STEERMAX'])
-		
+
 		# atua no volante
 		self.atuador.set_steer(self.st)
 		
@@ -638,6 +668,8 @@ if __name__ == "__main__":
 	try:
 		car.start_mission()
 		
+		t_print = 0.0
+		
 		# testa leitura
 		t0 = time.monotonic()
 		while (time.monotonic() - t0) <= parameters['ts']:
@@ -657,11 +689,21 @@ if __name__ == "__main__":
 			else:
 				car.set_vel(0.0)
 			#
-			print(
-				f"Vel: {car.v:+.2f} m/s | "
-				f"Ref: {car.vref:+.2f} m/s | "
-				f"Marcha: {car.gear.value}"
-			)
+			# mostra estado a 5 Hz
+			if t - t_print >= 0.2:
+				modo_dir = "AUTO" if car.sel_direcao else "RC"
+				modo_tracao = "AUTO" if car.sel_tracao else "RC"
+
+				print(
+					f"Vel: {car.v:+.2f} m/s | "
+					f"Ref: {car.vref:+.2f} m/s | "
+					f"Direcao: {modo_dir} | "
+					f"Tracao: {modo_tracao} | "
+					f"Marcha: {car.gear.value}",
+					flush=True
+				)
+
+				t_print = t
 				
 			# seta estercamento junto com ultrasom
 			car.set_steer(np.deg2rad(20.0)*np.sin(0.5*t))
