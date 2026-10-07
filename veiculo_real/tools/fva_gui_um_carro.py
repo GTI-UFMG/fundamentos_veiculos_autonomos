@@ -253,8 +253,8 @@ class RsyncGUI(tk.Tk):
 		notebook.add(self.tab_home, text="🏠 Início")
 		notebook.add(self.tab_files, text="📂 Enviar Arquivos")
 		notebook.add(self.tab_cmds, text="💻 Executar Comandos")
-		notebook.add(self.tab_tests, text="🧪 Testar Módulos")
 		notebook.add(self.tab_data, text="📊 Coletar Dados")
+		notebook.add(self.tab_tests, text="🧪 Testar Módulos")
 
 		self._build_tab_home(self.tab_home)
 		self._build_tab_files(self.tab_files)
@@ -388,7 +388,7 @@ class RsyncGUI(tk.Tk):
 		
 		self.cmd_text = scrolledtext.ScrolledText(
 			cmds_frame,
-			height=6,
+			height=3,
 			bg="black",
 			fg="white",
 			insertbackground="white",
@@ -513,7 +513,15 @@ class RsyncGUI(tk.Tk):
 
 		# adiciona os dois lados
 		bottom.add(plot_frame, weight=1)
-		bottom.add(terminal_frame, weight=1)
+		bottom.add(terminal_frame, weight=3)
+		
+		# inicia com 60% para o gráfico e 40% para o terminal
+		def set_initial_panes():
+			width = bottom.winfo_width()
+			if width > 1:
+				bottom.sashpos(0, int(width * 0.60))
+
+		self.after(100, set_initial_panes)
 
 	########################################
 	def _build_tab_tests(self, parent):
@@ -546,6 +554,7 @@ class RsyncGUI(tk.Tk):
 		self.test_modules = {
 			"Encoder / RC / Chaves": "fva_car/encoder.py",
 			"Ultrassom": "fva_car/ultrasonic.py",
+			"Carro completo": "fva_car/car.py",
 		}
 
 		self.test_module_var = tk.StringVar(
@@ -618,6 +627,7 @@ class RsyncGUI(tk.Tk):
 				if (
 					text.lstrip().startswith("Vel =")
 					or text.lstrip().startswith("Distancia =")
+					or text.lstrip().startswith("Vel:")
 				):
 					latest_status = text
 				else:
