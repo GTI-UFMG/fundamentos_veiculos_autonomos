@@ -28,7 +28,7 @@ GAIN_STERRING_ANGLE = np.deg2rad(50.0)/MAX_STERRING_ANGLE
 ZERO_THROTTLE_ANGLE = np.deg2rad(95.0)
 GAIN_TORQUE_FORWARD = 0.4 # [rad/s] por unidade de pseudo-torque
 GAIN_TORQUE_REVERSE = 1.2 # [rad/s] por unidade de pseudo-torque
-GEAR_SHIFTING_TIME  = 5.0  # tempo para a troca de marcha [s]
+GEAR_SHIFTING_TIME  = 2.5  # tempo para a troca de marcha [s]
 
 class Gear(Enum):
     FORWARD = "forward"

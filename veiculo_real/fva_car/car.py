@@ -114,10 +114,10 @@ class Car:
 		self.gear = self.atuador.get_gear()
 		
 		# filtros dos sinais
-		self.v_filt    = filter.MovingAverage(n=30)
+		self.v_filt    = filter.MovingAverage(n=20)
 		self.a_filt    = filter.MovingAverage(n=30)
-		self.vref_filt = filter.MovingAverage(n=100)
-		self.w_filt    = filter.MovingAverage(n=20)
+		self.vref_filt = filter.MovingAverage(n=5)
+		self.w_filt    = filter.MovingAverage(n=10)
 		
 		# logs de salvamento
 		if self.parameters['save']:
@@ -344,7 +344,7 @@ class Car:
 			_, _, self.yaw_mag = self.imu.get_euler(degrees=False)
 
 			if self.yaw_mag is not None:
-				K = 0.05
+				K = 0*0.05
 				# erro angular corretamente embrulhado
 				error = np.arctan2(np.sin(self.yaw_mag - yaw), np.cos(self.yaw_mag - yaw))
 				yaw += K*error
@@ -375,7 +375,7 @@ class Car:
 		self.w_imu = np.deg2rad(g_z)
 
 		# fusao modelo + IMU
-		K = 0.8
+		K = 0*0.8
 		w = (1.0 - K)*self.w_model + K*self.w_imu
 
 		# filtra velocidade angular
@@ -397,7 +397,7 @@ class Car:
 		self.a_x, _, _ = self.imu.get_accel()
 
 		# fusao sensorial
-		K = 0.2
+		K = 0*0.2
 		a = (1.0 - K)*self.a_model + K*self.a_x
 
 		# filtra
@@ -414,8 +414,8 @@ class Car:
 			return self.vref
 			
 		# referencia filtrada de velocidade
-		self.vref = self.vref_filt.filter(vref)
-		self.vref = np.clip(self.vref, -CAR['VELMAX'], CAR['VELMAX'])
+		vref = self.vref_filt.filter(vref)
+		self.vref = np.clip(vref, -CAR['VELMAX'], CAR['VELMAX'])
 		
 		# se eh para dar re e estou indo para frente
 		if (self.vref < 0.0) and (self.gear == servos.Gear.FORWARD):
@@ -542,15 +542,15 @@ class Car:
 		
 		# dados (COLOCAR APENAS ESCALARES)
 		data = {	
-					't'     : self.t, 
-					'x'     : self.p[0], 
-					'y'     : self.p[1],
-					'v'     : self.v,
-					'a'		: self.a,
-					'vref'  : self.vref,
-					'th'    : self.th,
-					'w'     : self.w,
-					'u'     : self.u,
+					't'     	: self.t, 
+					'x'     	: self.p[0], 
+					'y'     	: self.p[1],
+					'v'     	: self.v,
+					'a'			: self.a,
+					'vref'  	: self.vref,
+					'th'    	: self.th,
+					'w'     	: self.w,
+					'u'     	: self.u,
 					'a_model'	: self.a_model,
 					'a_x'		: self.a_x,
 					'w_model'	: self.w_model,
@@ -655,7 +655,7 @@ if __name__ == "__main__":
 	# Globais
 	parameters = {	
 				'ts'					: 30.0, 	# tempo da execucao
-				'save'					: True,		# salva dados da trajetoria
+				'save'					: False,		# salva dados da trajetoria
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# habilitar camera e thread de visao
 				'us_buzzer'				: True,		# aviso sonoro para objetos proximos
@@ -691,8 +691,8 @@ if __name__ == "__main__":
 			#
 			# mostra estado a 5 Hz
 			if t - t_print >= 0.2:
-				modo_dir = "AUTO" if car.sel_direcao else "RC"
-				modo_tracao = "AUTO" if car.sel_tracao else "RC"
+				modo_dir = "\033[31mAUTO\033[0m" if car.sel_direcao else "\033[33mRC\033[0m"
+				modo_tracao = "\033[31mAUTO\033[0m" if car.sel_tracao else "\033[33mRC\033[0m"
 
 				print(
 					f"Vel: {car.v:+.2f} m/s | "

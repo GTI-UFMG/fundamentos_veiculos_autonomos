@@ -7,24 +7,20 @@
 # DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
-
 import numpy as np
 from serial.tools import list_ports
 import serial
 import threading
 import time
 
-
 ########################################
 # Globais
 ########################################
-
 BAUDRATE        = 115200
 TIMEOUT         = 0.2
 REDUCAO_EIXO    = 7.80
 RAIO_RODA       = 0.08
 SENSOR_TIMEOUT  = 0.30
-
 
 ########################################
 # Calibracao do receptor RC [us]
@@ -43,7 +39,6 @@ RC_ACEL_MAX     = 1780
 # Zona morta do comando normalizado
 # +/- 5% em torno do centro
 RC_DEADZONE     = 0.05
-
 
 ########################################
 # Classe para leitura do Arduino Nano
@@ -96,7 +91,6 @@ class Encoder:
 			daemon=True
 		)
 		self.thread.start()
-
 
 	########################################
 	# thread de leitura da serial
@@ -165,7 +159,6 @@ class Encoder:
 				# o ultimo conjunto valido recebido
 				continue
 
-
 	########################################
 	# retorna velocidade mais recente
 	########################################
@@ -183,7 +176,6 @@ class Encoder:
 
 		return vel, valid
 
-
 	########################################
 	# retorna modo de controle
 	#
@@ -197,7 +189,6 @@ class Encoder:
 
 		with self.lock:
 			return self.sel_direcao, self.sel_tracao
-
 
 	########################################
 	# normaliza um canal RC para [-1, +1]
@@ -234,7 +225,6 @@ class Encoder:
 
 		return float(np.clip(u, -1.0, 1.0))
 
-
 	########################################
 	# retorna comandos normalizados do radio
 	#
@@ -267,7 +257,6 @@ class Encoder:
 
 		return direcao, acelerador
 
-
 	########################################
 	# retorna todos os dados crus
 	# util para diagnostico/testes
@@ -299,7 +288,6 @@ class Encoder:
 			valid
 		)
 
-
 	########################################
 	# detecta automaticamente a porta
 	########################################
@@ -321,7 +309,6 @@ class Encoder:
 
 		return None
 
-
 	########################################
 	# fecha comunicacao serial e thread
 	########################################
@@ -340,7 +327,6 @@ class Encoder:
 				self.ser.close()
 		except (OSError, serial.SerialException):
 			pass
-
 
 ########################################
 # main test
@@ -371,9 +357,9 @@ if __name__ == "__main__":
 			# Valores normalizados
 			rc_dir, rc_acel = enc.get_rc()
 
-			modo_dir = "AUTO" if sel_dir else "RC"
-			modo_tracao = "AUTO" if sel_tracao else "RC"
-			status = "OK" if valid else "INVALIDA"
+			modo_dir = "\033[31mAUTO\033[0m" if sel_dir else "\033[33mRC\033[0m"
+			modo_tracao = "\033[31mAUTO\033[0m" if sel_tracao else "\033[33mRC\033[0m"
+			status = "\033[32mOK\033[0m" if valid else "\033[31mINVALIDA\033[0m"
 
 			print(
 				f"Vel = {vel:.1f} m/s | "
