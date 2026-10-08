@@ -147,13 +147,13 @@ if __name__ == "__main__":
 
 				print(
 					f"DATA,"
-					f"{car.t:.1f},"
-					f"{car.p[0]:.1f},"
-					f"{car.p[1]:.1f},"
-					f"{car.v:.1f},"
-					f"{car.vref:.1f},"
-					f"{car.a:.1f},"
-					f"{car.u:.1f},"
+					f"{car.t:.2f},"
+					f"{car.p[0]:.2f},"
+					f"{car.p[1]:.2f},"
+					f"{car.v:.2f},"
+					f"{car.vref:.2f},"
+					f"{car.a:.2f},"
+					f"{car.u:.2f},"
 					f"{car.w:.2f},"
 					f"{car.th:.2f}",
 					flush=True
