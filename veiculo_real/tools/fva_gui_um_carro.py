@@ -19,6 +19,7 @@ import threading
 import stat
 import time
 import queue
+import csv
 
 import paramiko
 import tkinter as tk
@@ -864,15 +865,6 @@ class RsyncGUI(tk.Tk):
 			pady=(10, 6)
 		)
 
-		# dispositivos
-		devices_frame = ttk.Frame(parent)
-		devices_frame.pack(fill="x", padx=10, pady=6)
-
-		ttk.Label(
-			devices_frame,
-			text="O primeiro veículo detectado será utilizado."
-		).pack(anchor="w")
-
 		# pasta local
 		local_frame = ttk.Frame(parent)
 		local_frame.pack(fill="x", padx=10, pady=10)
@@ -911,28 +903,171 @@ class RsyncGUI(tk.Tk):
 			pady=6
 		)
 
-		# log
-		ttk.Label(
-			parent,
-			text="Transferências:"
-		).pack(
-			anchor="w",
-			padx=10,
-			pady=(10, 2)
-		)
-
-		self.data_log = scrolledtext.ScrolledText(
-			parent,
-			height=16
-		)
-		self.data_log.pack(
-			fill="both",
-			expand=True,
-			padx=10,
-			pady=(0, 10)
-		)
+		# Mensagens da coleta (altura reduzida para liberar espaço)
+		ttk.Label(parent, text="Transferências:").pack(anchor="w", padx=10, pady=(4, 2))
+		self.data_log = scrolledtext.ScrolledText(parent, height=4)
+		self.data_log.pack(fill="x", padx=10, pady=(0, 6))
 		self.data_log.configure(state="disabled")
-		
+
+		# Seleção de experimentos já baixados
+		selector = ttk.Frame(parent)
+		selector.pack(fill="x", padx=10, pady=(2, 5))
+		ttk.Label(selector, text="Experimento:").pack(side="left")
+		self.log_file_var = tk.StringVar()
+		self.log_file_combo = ttk.Combobox(selector, textvariable=self.log_file_var,
+			state="readonly", width=38)
+		self.log_file_combo.pack(side="left", fill="x", expand=True, padx=6)
+		self.log_file_combo.bind("<<ComboboxSelected>>", lambda event: self.load_experiment())
+		ttk.Button(selector, text="Atualizar lista", command=self.refresh_experiments).pack(side="left")
+
+		self.experiment_graphs = [
+			("Velocidade", "Velocidade medida e referência"),
+			("Aceleração", "Aceleração: estimada, modelo e IMU"),
+			("Velocidade angular", "Velocidade angular: estimada, modelo e IMU"),
+			("Orientação", "Orientação × tempo"),
+			("Controle", "Comando de aceleração × tempo"),
+			("Trajetória XY", "Trajetória XY"),
+		]
+		options = ttk.Frame(parent)
+		options.pack(fill="x", padx=10, pady=(0, 4))
+		ttk.Label(options, text="Gráficos:").pack(side="left")
+		self.graph_vars = {}
+		for key, _ in self.experiment_graphs:
+			var = tk.BooleanVar(value=True)
+			self.graph_vars[key] = var
+			ttk.Checkbutton(options, text=key, variable=var,
+				command=self.render_experiment_graphs).pack(side="left", padx=4)
+
+		# Área de gráficos com rolagem vertical
+		graph_area = ttk.Frame(parent)
+		graph_area.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+		self.graph_scroll = tk.Canvas(graph_area, highlightthickness=0)
+		graph_bar = ttk.Scrollbar(graph_area, orient="vertical", command=self.graph_scroll.yview)
+		self.graph_scroll.configure(yscrollcommand=graph_bar.set)
+		graph_bar.pack(side="right", fill="y")
+		self.graph_scroll.pack(side="left", fill="both", expand=True)
+		self.graph_inner = ttk.Frame(self.graph_scroll)
+		self.graph_window = self.graph_scroll.create_window((0, 0),
+			window=self.graph_inner, anchor="nw")
+		self.graph_inner.bind("<Configure>", lambda e: self.graph_scroll.configure(
+			scrollregion=self.graph_scroll.bbox("all")))
+		self.graph_scroll.bind("<Configure>", lambda e: self.graph_scroll.itemconfigure(
+			self.graph_window, width=e.width))
+		self.experiment_data = None
+		self.experiment_paths = {}
+		self.experiment_canvases = []
+		self.refresh_experiments()
+
+	########################################
+	def refresh_experiments(self):
+		"""Localiza car.csv dentro das pastas já coletadas, sem usar SSH."""
+		base = self.data_dest_entry.get().strip()
+		paths = {}
+		if os.path.isdir(base):
+			for root, dirs, files in os.walk(base):
+				dirs.sort()
+				if "car.csv" in files:
+					path = os.path.join(root, "car.csv")
+					label = os.path.relpath(root, base)
+					paths[label] = path
+		self.experiment_paths = dict(sorted(paths.items(), reverse=True))
+		self.log_file_combo.configure(values=list(self.experiment_paths))
+		current = self.log_file_var.get()
+		if current not in self.experiment_paths:
+			self.log_file_var.set(next(iter(self.experiment_paths), ""))
+			self.load_experiment()
+		elif self.experiment_data is None:
+			self.load_experiment()
+
+	########################################
+	def load_experiment(self):
+		"""Lê o CSV local preservando os nomes das colunas do car.py."""
+		path = self.experiment_paths.get(self.log_file_var.get())
+		self.experiment_data = None
+		if path:
+			try:
+				with open(path, newline="", encoding="utf-8-sig") as f:
+					reader = csv.DictReader(f)
+					required = {"t", "x", "y", "v", "vref", "a", "a_model", "a_x",
+						"w", "w_model", "w_imu", "th", "u"}
+					if not reader.fieldnames or not required.issubset(reader.fieldnames):
+						raise ValueError("Colunas necessárias ausentes no car.csv")
+					data = {key: [] for key in required}
+					for row in reader:
+						for key in required:
+							data[key].append(float(row[key]))
+				if not data["t"]:
+					raise ValueError("Arquivo sem amostras")
+				self.experiment_data = data
+			except (OSError, ValueError, TypeError) as exc:
+				messagebox.showerror("Erro ao ler experimento", f"{path}\n\n{exc}")
+		self.render_experiment_graphs()
+
+	########################################
+	def plot_experiment_axis(self, ax, key):
+		d = self.experiment_data
+		if key == "Trajetória XY":
+			ax.plot(d["x"], d["y"], label="Trajetória")
+			ax.set_xlabel("x [m]")
+			ax.set_ylabel("y [m]")
+			ax.set_aspect("equal", adjustable="datalim")
+		else:
+			series = {
+				"Velocidade": [("v", "Medida"), ("vref", "Referência")],
+				"Aceleração": [("a", "Estimada"), ("a_model", "Modelo"), ("a_x", "IMU")],
+				"Velocidade angular": [("w", "Estimada"), ("w_model", "Modelo"), ("w_imu", "IMU")],
+				"Orientação": [("th", "Orientação")],
+				"Controle": [("u", "Comando")],
+			}
+			for field, label in series[key]:
+				ax.plot(d["t"], d[field], label=label)
+			ax.set_xlabel("Tempo [s]")
+			ax.set_ylabel({"Velocidade": "m/s", "Aceleração": "m/s²",
+				"Velocidade angular": "rad/s", "Orientação": "rad",
+				"Controle": "u"}[key])
+			ax.legend(fontsize=8)
+		ax.grid(True)
+
+	########################################
+	def render_experiment_graphs(self):
+		for child in self.graph_inner.winfo_children():
+			child.destroy()
+		self.experiment_canvases = []
+		if self.experiment_data is None:
+			ttk.Label(self.graph_inner, text="Selecione um experimento local para visualizar os gráficos.").pack(pady=25)
+			return
+		for column in (0, 1):
+			self.graph_inner.columnconfigure(column, weight=1, uniform="graphs")
+		keys = [key for key, _ in self.experiment_graphs if self.graph_vars[key].get()]
+		for i, key in enumerate(keys):
+			frame = ttk.LabelFrame(self.graph_inner, text=key)
+			frame.grid(row=i // 2, column=i % 2, sticky="nsew", padx=4, pady=4)
+			fig = Figure(figsize=(4.5, 2.7), dpi=90)
+			ax = fig.add_subplot(111)
+			self.plot_experiment_axis(ax, key)
+			fig.tight_layout()
+			canvas = FigureCanvasTkAgg(fig, master=frame)
+			canvas.get_tk_widget().pack(fill="both", expand=True)
+			canvas.draw_idle()
+			self.experiment_canvases.append(canvas)
+			ttk.Button(frame, text="Ampliar", command=lambda k=key: self.open_experiment_graph(k)).pack(anchor="e", padx=5, pady=2)
+
+	########################################
+	def open_experiment_graph(self, key):
+		if self.experiment_data is None:
+			return
+		window = tk.Toplevel(self)
+		window.title(f"FVA — {key} — {self.log_file_var.get()}")
+		window.geometry("1000x650")
+		fig = Figure(figsize=(10, 6), dpi=100)
+		ax = fig.add_subplot(111)
+		self.plot_experiment_axis(ax, key)
+		fig.tight_layout()
+		canvas = FigureCanvasTkAgg(fig, master=window)
+		canvas.get_tk_widget().pack(fill="both", expand=True)
+		canvas.draw_idle()
+		window.graph_canvas = canvas
+
 	########################################
 	# Funções utilitárias comuns
 	########################################
@@ -1310,6 +1445,7 @@ class RsyncGUI(tk.Tk):
 		if directory:
 			self.data_dest_entry.delete(0, "end")
 			self.data_dest_entry.insert(0, directory)
+			self.refresh_experiments()
 
 	########################################
 	def collect_data(self):
@@ -1379,6 +1515,7 @@ class RsyncGUI(tk.Tk):
 					client.close()
 
 		self.ui(self.datalog_write, "🏁 Coleta finalizada.")
+		self.ui(self.refresh_experiments)
 	
 	########################################
 	def datalog_write(self, text):
