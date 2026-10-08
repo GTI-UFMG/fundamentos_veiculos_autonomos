@@ -13,6 +13,8 @@
 import os
 import re
 import posixpath
+import shlex
+import uuid
 import platform
 import subprocess
 import threading
@@ -20,6 +22,7 @@ import stat
 import time
 import queue
 import csv
+from collections import deque
 
 import paramiko
 import tkinter as tk
@@ -162,6 +165,9 @@ class RsyncGUI(tk.Tk):
 		# Estado exclusivo da aba "Testar Modulos"
 		self.test_client = None
 		self.test_channel = None
+		self.test_remote_pid = None
+		self.test_remote_ip = None
+		self.test_run_id = None
 		self.test_running = False
 		self.test_output_queue = queue.Queue()
 		self.test_status_pending = None
@@ -181,6 +187,8 @@ class RsyncGUI(tk.Tk):
 				)
 		
 		self.telemetry = {}
+		self.telemetry_queue = queue.Queue()
+		self.after(200, self._refresh_live_plot)
 		
 		# aumenta fontes
 		style = ttk.Style()
@@ -398,8 +406,7 @@ class RsyncGUI(tk.Tk):
 
 		self.cmd_text.insert(
 								"end",
-								'pkill -f "python3.*main.py"\n'
-								'python3 main.py\n'
+								'python3 -u main.py\n'
 							)
 		self.cmd_text.pack(fill="x", pady=4)
 
@@ -610,7 +617,39 @@ class RsyncGUI(tk.Tk):
 			padx=10,
 			pady=(0, 10)
 		)
+		# Cores ANSI usadas pelos módulos remotos
+		for code, color in {
+			"30": "#555555", "31": "#ff5555", "32": "#55ff55",
+			"33": "#ffff55", "34": "#5555ff", "35": "#ff55ff",
+			"36": "#55ffff", "37": "#ffffff",
+			"90": "#555555", "91": "#ff5555", "92": "#55ff55",
+			"93": "#ffff55", "94": "#5555ff", "95": "#ff55ff",
+			"96": "#55ffff", "97": "#ffffff",
+		}.items():
+			self.test_log.tag_configure(f"ansi_{code}", foreground=color)
 		self.test_log.configure(state="disabled")
+
+	########################################
+	def _test_insert_colored(self, text):
+		"""Insere texto interpretando cores ANSI, sem adicionar quebra de linha."""
+		current_tag = None
+		pos = 0
+		for match in ANSI_ESCAPE_RE.finditer(text):
+			part = text[pos:match.start()]
+			if part:
+				self.test_log.insert("end", part, (current_tag,) if current_tag else ())
+			for code in match.group()[2:-1].split(";"):
+				if code in ("0", "39"):
+					current_tag = None
+				elif code in ("1", "22"):
+					continue
+				elif code in ("30", "31", "32", "33", "34", "35", "36", "37",
+						"90", "91", "92", "93", "94", "95", "96", "97"):
+					current_tag = f"ansi_{code}"
+			pos = match.end()
+		part = text[pos:]
+		if part:
+			self.test_log.insert("end", part, (current_tag,) if current_tag else ())
 
 	########################################
 	def _queue_test_output(self, text):
@@ -625,10 +664,11 @@ class RsyncGUI(tk.Tk):
 			while len(lines) < 200:
 				text = self.test_output_queue.get_nowait()
 
+				plain = ANSI_ESCAPE_RE.sub("", text).lstrip()
 				if (
-					text.lstrip().startswith("Vel =")
-					or text.lstrip().startswith("Distancia =")
-					or text.lstrip().startswith("Vel:")
+					plain.startswith("Vel =")
+					or plain.startswith("Distancia =")
+					or plain.startswith("Vel:")
 				):
 					latest_status = text
 				else:
@@ -639,7 +679,7 @@ class RsyncGUI(tk.Tk):
 		if latest_status is not None:
 			self.test_status_pending = latest_status
 
-		if lines or self.test_status_pending is not None:
+		if lines or latest_status is not None:
 			self.test_log.configure(state="normal")
 
 			# Se já existe uma linha dinâmica, remove-a antes de acrescentar
@@ -652,11 +692,11 @@ class RsyncGUI(tk.Tk):
 				self.test_status_mark = None
 
 			if lines:
-				self.test_log.insert("end", "\n".join(lines) + "\n")
+				self._test_insert_colored("\n".join(lines) + "\n")
 
 			if self.test_status_pending is not None:
 				self.test_status_mark = self.test_log.index("end-1c")
-				self.test_log.insert("end", self.test_status_pending)
+				self._test_insert_colored(self.test_status_pending)
 
 			self.test_log.see("end")
 			self.test_log.configure(state="disabled")
@@ -666,7 +706,7 @@ class RsyncGUI(tk.Tk):
 	########################################
 	def testlog_write(self, text):
 		self.test_log.configure(state="normal")
-		self.test_log.insert("end", text + "\n")
+		self._test_insert_colored(text + "\n")
 		self.test_log.see("end")
 		self.test_log.configure(state="disabled")
 
@@ -710,6 +750,9 @@ class RsyncGUI(tk.Tk):
 		name, ip = targets[0]
 
 		self.test_running = True
+		self.test_remote_pid = None
+		self.test_remote_ip = ip
+		self.test_run_id = uuid.uuid4().hex
 		self.test_status_pending = None
 		self.test_status_mark = None
 		self.test_run_button.configure(state="disabled")
@@ -732,126 +775,129 @@ class RsyncGUI(tk.Tk):
 
 	########################################
 	def _run_module_test(self, name, ip, module_path):
-
-		remote_workdir = (
-			self.dest_entry.get().strip() or DEFAULT_DEST
-		).rstrip("/")
-
+		"""Executa módulo em sessão independente e acompanha log persistente por SFTP."""
+		remote_workdir = (self.dest_entry.get().strip() or DEFAULT_DEST).rstrip("/")
+		run_id = self.test_run_id
+		base = f"/tmp/fva_teste_{run_id}"
+		log_path, exit_path = base + ".log", base + ".exit"
 		client = None
-		channel = None
-
+		sftp = None
+		buffer = b""
+		offset = 0
+		pid = None
+		finished = False
+		connection_errors = 0
 		try:
-			client = self._connect_ssh(ip)
-
-			command = (
-				f'cd "{remote_workdir}" && '
-				f'python3 -u "{module_path}"'
-			)
-
+			command = f"cd {shlex.quote(remote_workdir)} && python3 -u {shlex.quote(module_path)}"
 			self._queue_test_output(f"$ {command}")
 			self._queue_test_output("")
-
-			transport = client.get_transport()
-			channel = transport.open_session()
-
-			# Saída sem buffer; não é necessário pseudo-terminal.
-			channel.exec_command(command)
-
-			self.test_client = client
-			self.test_channel = channel
-
-			buffer = ""
-
-			while self.test_running and not channel.exit_status_ready():
-
-				if channel.recv_ready():
-					data = channel.recv(4096).decode(
-						"utf-8",
-						errors="replace"
-					)
-					buffer += data
-
-					while "\n" in buffer:
-						line, buffer = buffer.split("\n", 1)
-						self._queue_test_output(
-							line.rstrip("\r")
-						)
-				else:
-					time.sleep(0.03)
-
-			while channel.recv_ready():
-				buffer += channel.recv(4096).decode(
-					"utf-8",
-					errors="replace"
-				)
-
+			# setsid cria grupo próprio, permitindo que Parar encerre o módulo e filhos.
+			inner = f"{command}; rc=$?; printf '%s\\n' \"$rc\" > {shlex.quote(exit_path)}"
+			launch = (f"nohup setsid sh -c {shlex.quote(inner)} "
+					  f"> {shlex.quote(log_path)} 2>&1 < /dev/null & echo FVA_PID:$!")
+			client = self._connect_ssh(ip)
+			_, out, err = client.exec_command(launch, timeout=20)
+			response = out.readline().strip()
+			if not response.startswith("FVA_PID:"):
+				raise RuntimeError(f"Falha ao iniciar teste: {response} {err.read(500).decode(errors='replace')}")
+			pid = int(response.split(":", 1)[1])
+			self.test_remote_pid = pid
+			self._queue_test_output(f"Log remoto: {log_path}")
+			# Se Parar foi pressionado enquanto a conexão inicial era estabelecida.
+			if not self.test_running:
+				self._stop_remote_test_process(ip, pid)
+			while self.test_running and not finished:
+				try:
+					if client is None or not client.get_transport() or not client.get_transport().is_active():
+						if client: client.close()
+						client = self._connect_ssh(ip)
+					if sftp is None:
+						sftp = client.open_sftp()
+						sftp.get_channel().settimeout(10)
+					with sftp.open(log_path, "rb") as remote_file:
+						remote_file.seek(offset)
+						chunk = remote_file.read(65536)
+					if chunk:
+						offset += len(chunk)
+						buffer += chunk
+						# Retorno de carro também encerra uma atualização dinâmica do sensor.
+						while True:
+							match = re.search(rb"\r\n|\r|\n", buffer)
+							if match is None: break
+							line, buffer = buffer[:match.start()], buffer[match.end():]
+							if line: self._queue_test_output(line.decode("utf-8", errors="replace"))
+					try:
+						with sftp.open(exit_path, "r") as status_file:
+							rc = int(status_file.read().strip())
+						finished = True
+					except IOError:
+						pass
+					connection_errors = 0
+				except (OSError, EOFError, paramiko.SSHException) as exc:
+					connection_errors += 1
+					if sftp:
+						try: sftp.close()
+						except Exception: pass
+					sftp = None
+					if client:
+						try: client.close()
+						except Exception: pass
+					client = None
+					if connection_errors == 1:
+						self._queue_test_output(f"Comunicação interrompida; recuperando log: {exc}")
+					if connection_errors >= 15:
+						raise RuntimeError(f"Sem SSH após 15 tentativas; log preservado em {log_path}") from exc
+				time.sleep(0.3 if finished else 0.4)
 			if buffer:
-				for line in buffer.splitlines():
-					self._queue_test_output(
-						line.rstrip("\r")
-					)
-
-			if self.test_running:
-				rc = channel.recv_exit_status()
-				self._queue_test_output(
-					f"\nTeste finalizado (código {rc})."
-				)
+				self._queue_test_output(buffer.decode("utf-8", errors="replace"))
+			if finished and self.test_running:
+				self._queue_test_output(f"\nTeste finalizado (código {rc}).")
 			else:
-				self._queue_test_output(
-					"\nTeste interrompido."
-				)
-
-		except Exception as e:
-			# Fechar o canal pelo botão Parar pode provocar uma exceção
-			# normal de transporte; nesse caso não mostramos como falha.
+				self._queue_test_output("\nTeste interrompido.")
+		except Exception as exc:
 			if self.test_running:
-				self._queue_test_output(
-					f"Erro no teste de {name.upper()} ({ip}): {e}"
-				)
-
+				self._queue_test_output(f"Erro no teste de {name.upper()} ({ip}): {exc}")
 		finally:
-			try:
-				if channel:
-					channel.close()
-			except Exception:
-				pass
-
-			try:
-				if client:
-					client.close()
-			except Exception:
-				pass
-
-			self.test_channel = None
-			self.test_client = None
+			if sftp:
+				try: sftp.close()
+				except Exception: pass
+			if client:
+				try: client.close()
+				except Exception: pass
+			# Não deixa um teste remoto rodando sem supervisão se a leitura falhar.
+			if not finished and pid is not None:
+				self._stop_remote_test_process(ip, pid)
+			self.test_remote_pid = None
+			self.test_remote_ip = None
 			self.test_running = False
+			self.ui(self.test_run_button.configure, state="normal")
+			self.ui(self.test_stop_button.configure, state="disabled")
 
-			self.ui(
-				self.test_run_button.configure,
-				state="normal"
-			)
-			self.ui(
-				self.test_stop_button.configure,
-				state="disabled"
-			)
+	########################################
+	def _stop_remote_test_process(self, ip, pid):
+		"""Encerra apenas o grupo de processos criado para este teste."""
+		client = None
+		try:
+			client = self._connect_ssh(ip)
+			# PID de setsid é também o identificador do grupo de processos.
+			code = ("import os,signal; "
+					f"os.killpg({int(pid)}, signal.SIGTERM)")
+			_, out, err = client.exec_command(f"python3 -c {shlex.quote(code)}", timeout=10)
+			if out.channel.recv_exit_status() != 0:
+				self._queue_test_output("Aviso: não foi possível confirmar parada do processo remoto.")
+		except Exception as exc:
+			self._queue_test_output(f"Aviso ao interromper teste remoto: {exc}")
+		finally:
+			if client: client.close()
 
 	########################################
 	def stop_module_test(self):
-
 		if not self.test_running:
 			return
-
 		self.test_running = False
-
-		# Interrompe apenas o canal criado por esta aba.
-		# Não usa pkill e não interfere nas outras abas.
-		try:
-			if self.test_channel:
-				self.test_channel.close()
-		except Exception:
-			pass
-
 		self.test_stop_button.configure(state="disabled")
+		# A thread de acompanhamento encerra o processo remoto no finally.
+		self._queue_test_output("Solicitada interrupção do teste...")
 
 	########################################
 	def _build_tab_data(self, parent):
@@ -1282,9 +1328,9 @@ class RsyncGUI(tk.Tk):
 			ip,
 			username=self.user_entry.get().strip() or SSH_USER,
 			password=self.pass_entry.get().strip() or None,
-			timeout=8,
-			auth_timeout=8,
-			banner_timeout=8,
+			timeout=20,
+			auth_timeout=20,
+			banner_timeout=20,
 		)
 		return client
 
@@ -1382,57 +1428,128 @@ class RsyncGUI(tk.Tk):
 			return
 			
 		self.telemetry = {}
-		self.after(0, self.update_plot)
+		while not self.telemetry_queue.empty():
+			try:
+				self.telemetry_queue.get_nowait()
+			except queue.Empty:
+				break
+		self.update_plot()
 		
 		threading.Thread(target=self._run_remote_cmds, args=(targets, cmds), daemon=True).start()
 		
 	########################################
-	def _run_remote_cmds(self, targets, cmds):
-		remote_workdir = (self.dest_entry.get().strip() or DEFAULT_DEST).rstrip("/")
+	def _handle_remote_log_line(self, name, line):
+		"""Processa a mesma telemetria DATA usada anteriormente."""
+		line = line.rstrip("\r\n")
+		if not line:
+			return
+		if ANSI_ESCAPE_RE.sub("", line).lstrip().startswith("DATA,"):
+			try:
+				self.telemetry_queue.put((name, parse_telemetry_line(line)))
+			except ValueError as exc:
+				self.ui(self.cmdlog_write, f"[{name.upper()}] Telemetria inválida: {exc} | {line!r}")
+		else:
+			self.ui(self.cmdlog_write, f"[{name.upper()}] {line}")
 
+	def _run_remote_cmds(self, targets, cmds):
+		"""Executa no Raspberry e lê log persistente via SFTP com retomada por offset.
+
+		O processo não depende da sessão que lê a saída. O marcador .exit
+		indica a conclusão, mesmo se a conexão de leitura cair.
+		"""
+		remote_workdir = (self.dest_entry.get().strip() or DEFAULT_DEST).rstrip("/")
 		for name, ip in targets:
 			self.ui(self.cmdlog_write, "\n" + "=" * 60)
 			self.ui(self.cmdlog_write, f"💻 Executando carro {name.upper()} ({ip}) - workdir: {remote_workdir}")
-			client = None
-			try:
-				client = self._connect_ssh(ip)
-				for raw_cmd in cmds:
-					wrapped = f'cd "{remote_workdir}" && {raw_cmd}'
-					self.ui(self.cmdlog_write, f"$ {wrapped}")
-
-					stdin, stdout, stderr = client.exec_command(wrapped, get_pty=True)
-					for line in iter(stdout.readline, ""):
-						line = line.rstrip("\r\n")
-						if not line:
-							continue
-
-						if ANSI_ESCAPE_RE.sub("", line).lstrip().startswith("DATA,"):
+			for raw_cmd in cmds:
+				client = None
+				sftp = None
+				try:
+					# Nome exclusivo evita misturar execuções antigas e novas.
+					run_id = uuid.uuid4().hex
+					base = f"/tmp/fva_gui_{run_id}"
+					log_path = base + ".log"
+					exit_path = base + ".exit"
+					self.ui(self.cmdlog_write, f"$ cd {remote_workdir} && {raw_cmd}")
+					# Processo remoto em segundo plano: grava stdout/stderr na Raspberry.
+					# O status é escrito em arquivo separado APÓS a saída terminar.
+					inner = (
+						f"cd {shlex.quote(remote_workdir)} && {raw_cmd}; "
+						"rc=$?; "
+						f"printf '%s\\n' \"$rc\" > {shlex.quote(exit_path)}"
+					)
+					launch = (
+						f"nohup sh -c {shlex.quote(inner)} > {shlex.quote(log_path)} 2>&1 "
+						"< /dev/null & echo FVA_PID:$!"
+					)
+					client = self._connect_ssh(ip)
+					_, out, err = client.exec_command(launch, timeout=20)
+					response = out.readline().strip()
+					if not response.startswith("FVA_PID:"):
+						raise RuntimeError(f"Não foi possível iniciar comando remoto: {response} {err.read(500).decode(errors='replace')}")
+					self.ui(self.cmdlog_write, f"📄 Saída persistente: {log_path}")
+					# Reabre SFTP se necessário; mantém offset para não duplicar dados.
+					offset = 0
+					buffer = b""
+					finished = False
+					connection_errors = 0
+					while not finished:
+						try:
+							if client is None or not client.get_transport() or not client.get_transport().is_active():
+								if client:
+									client.close()
+								client = self._connect_ssh(ip)
+							if sftp is None:
+								sftp = client.open_sftp()
+							# Ler somente bytes novos, mesmo depois de reconexão.
+							with sftp.open(log_path, "rb") as remote_file:
+								remote_file.seek(offset)
+								chunk = remote_file.read(65536)
+							if chunk:
+								offset += len(chunk)
+								buffer += chunk
+								while b"\n" in buffer:
+									line, buffer = buffer.split(b"\n", 1)
+									self._handle_remote_log_line(name, line.decode("utf-8", errors="replace"))
 							try:
-								sample = parse_telemetry_line(line)
-								if name not in self.telemetry:
-									self.telemetry[name] = {
-										"t": [], "x": [], "y": [], "v": [], "vref": [],
-										"a": [], "u": [], "w": [], "th": []
-									}
-								data = self.telemetry[name]
-								for key, value in sample.items():
-									data[key].append(value)
-								self.after(0, self.update_plot)
-							except ValueError as e:
-								self.ui(self.cmdlog_write, f"[{name.upper()}] Telemetria inválida: {e} | {line!r}")
-						else:
-							self.ui(self.cmdlog_write, f"[{name.upper()}] {line}")
-
-					rc = stdout.channel.recv_exit_status()
+								with sftp.open(exit_path, "r") as status_file:
+									rc = int(status_file.read().strip())
+								finished = True
+							except IOError:
+								pass  # comando ainda em execução
+							connection_errors = 0
+						except (OSError, EOFError, paramiko.SSHException) as exc:
+							connection_errors += 1
+							if sftp:
+								try: sftp.close()
+								except Exception: pass
+							sftp = None
+							if client:
+								try: client.close()
+								except Exception: pass
+							client = None
+							if connection_errors == 1:
+								self.ui(self.cmdlog_write, f"⚠️ Comunicação interrompida; tentando recuperar saída: {exc}")
+							if connection_errors >= 15:
+								raise RuntimeError("Sem comunicação SSH após 15 tentativas. O processo remoto pode continuar; log: " + log_path) from exc
+						time.sleep(0.25 if finished else 0.5)
+					if buffer:
+						self._handle_remote_log_line(name, buffer.decode("utf-8", errors="replace"))
 					if rc != 0:
 						self.ui(self.cmdlog_write, f"⚠️ Retorno {rc} para comando: {raw_cmd}")
-
-				self.ui(self.cmdlog_write, f"✅ Carro {name.upper()} finalizado")
-			except Exception as e:
-				self.ui(self.cmdlog_write, f"❌ Erro em {name.upper()} ({ip}): {e}")
-			finally:
-				if client:
-					client.close()
+					else:
+						self.ui(self.cmdlog_write, f"✅ Comando finalizado (código 0)")
+				except Exception as exc:
+					self.ui(self.cmdlog_write, f"❌ Erro em {name.upper()} ({ip}): {exc}")
+					break
+				finally:
+					if sftp:
+						try: sftp.close()
+						except Exception: pass
+					if client:
+						try: client.close()
+						except Exception: pass
+			self.ui(self.cmdlog_write, f"🏁 Execução encerrada para {name.upper()}")
 
 	########################################
 	# Execução remota (aba 3)
@@ -1523,6 +1640,24 @@ class RsyncGUI(tk.Tk):
 		self.data_log.insert("end", text + "\n")
 		self.data_log.see("end")
 		self.data_log.configure(state="disabled")
+
+	########################################
+	def _refresh_live_plot(self):
+		"""Consome telemetria na thread Tk e atualiza o gráfico no máximo a 5 Hz."""
+		changed = False
+		try:
+			while True:
+				name, sample = self.telemetry_queue.get_nowait()
+				if name not in self.telemetry:
+					self.telemetry[name] = {key: deque(maxlen=1000) for key in sample}
+				for key, value in sample.items():
+					self.telemetry[name][key].append(value)
+				changed = True
+		except queue.Empty:
+			pass
+		if changed:
+			self.update_plot()
+		self.after(200, self._refresh_live_plot)
 
 	########################################
 	def update_plot(self):
