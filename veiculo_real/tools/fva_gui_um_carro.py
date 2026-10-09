@@ -425,6 +425,12 @@ class RsyncGUI(tk.Tk):
 
 		ttk.Button(
 			cmd_buttons,
+			text="Gravar Arduino",
+			command=self.flash_arduino
+		).pack(side="left", padx=(0, 6))
+
+		ttk.Button(
+			cmd_buttons,
 			text="Limpar terminal",
 			command=self.clear_cmd_log
 		).pack(side="left")
@@ -1579,6 +1585,84 @@ class RsyncGUI(tk.Tk):
 		
 		threading.Thread(target=self._run_remote_cmds, args=(targets, cmds), daemon=True).start()
 		
+	########################################
+	def flash_arduino(self):
+		"""Compila e grava o firmware do Nano via Arduino CLI na Raspberry."""
+		targets = self.get_selected_devices()
+		if not targets:
+			messagebox.showinfo("Nenhum veículo", "Nenhum veículo foi detectado. Atualize os IPs.")
+			return
+		if not messagebox.askyesno(
+			"Gravar Arduino Nano",
+			"Gravar firmware/odometer.ino no Arduino Nano (Old Bootloader)?\n\n"
+			"O programa atual do Arduino será substituído. "
+			"Verifique se o veículo está imobilizado e seguro."
+		):
+			return
+
+		# Executado integralmente na Raspberry, sem dependências adicionais na GUI.
+		# A cópia temporária respeita a exigência da Arduino CLI de pasta/sketch homônimos.
+		script = r"""set -eu
+if ! command -v arduino-cli >/dev/null 2>&1; then
+	echo 'ERRO: arduino-cli não instalado na Raspberry.'
+	echo 'Instale o Arduino CLI e o core arduino:avr antes de gravar.'
+	exit 1
+fi
+if [ ! -f firmware/odometer.ino ]; then
+	echo 'ERRO: firmware/odometer.ino não encontrado na pasta remota.'
+	exit 1
+fi
+if ! arduino-cli core list | grep -q 'arduino:avr'; then
+	echo 'ERRO: core arduino:avr não instalado.'
+	echo 'Execute: arduino-cli core install arduino:avr'
+	exit 1
+fi
+# Preferir o caminho persistente por-id; sem ele, usar a única ttyUSB/ttyACM.
+set -- /dev/serial/by-id/*
+if [ -e "$1" ]; then
+	candidates=''
+	for port in "$@"; do
+		case "$(readlink -f "$port")" in
+			/dev/ttyUSB*|/dev/ttyACM*) candidates="$candidates $port" ;;
+		esac
+	done
+	set -- $candidates
+else
+	set -- /dev/ttyUSB* /dev/ttyACM*
+fi
+ports=''
+for port in "$@"; do
+	[ -e "$port" ] && ports="$ports $port"
+done
+set -- $ports
+if [ "$#" -ne 1 ]; then
+	echo "ERRO: esperado exatamente um dispositivo serial Arduino; encontrados $# ($ports)."
+	exit 1
+fi
+port="$1"
+if command -v fuser >/dev/null 2>&1 && fuser "$port" >/dev/null 2>&1; then
+	echo "ERRO: porta $port está sendo usada por outro processo."
+	fuser -v "$port" || true
+	exit 1
+fi
+sketch_dir="$(mktemp -d /tmp/fva_arduino_XXXXXX)"
+trap 'rm -rf "$sketch_dir"' EXIT
+mkdir -p "$sketch_dir/odometer"
+cp firmware/odometer.ino "$sketch_dir/odometer/odometer.ino"
+echo "Arduino Nano (Old Bootloader) | Porta: $port"
+echo 'Compilando firmware...'
+arduino-cli compile --fqbn arduino:avr:nano:cpu=atmega328old "$sketch_dir/odometer"
+echo 'Gravando Arduino...'
+arduino-cli upload --fqbn arduino:avr:nano:cpu=atmega328old -p "$port" "$sketch_dir/odometer"
+echo 'SUCESSO: firmware gravado no Arduino Nano.'"""
+		command = "sh -c " + shlex.quote(script)
+		self.ui(self.cmdlog_write, "Solicitada compilação e gravação do Arduino Nano...")
+		threading.Thread(
+			target=self._run_remote_cmds,
+			args=(targets, [command]),
+			daemon=True
+		).start()
+
 	########################################
 	def _handle_remote_log_line(self, name, line):
 		"""Processa a mesma telemetria DATA usada anteriormente."""
