@@ -22,6 +22,7 @@ import stat
 import time
 import queue
 import csv
+import base64
 from collections import deque
 
 import paramiko
@@ -169,6 +170,9 @@ class RsyncGUI(tk.Tk):
 		self.test_remote_ip = None
 		self.test_run_id = None
 		self.test_running = False
+		self.camera_window = None
+		self.camera_label = None
+		self.camera_photo = None
 		self.test_output_queue = queue.Queue()
 		self.test_status_pending = None
 		self.test_status_mark = None
@@ -385,7 +389,7 @@ class RsyncGUI(tk.Tk):
 
 	########################################
 	def _build_tab_cmds(self, parent):
-		ttk.Label(parent, text="Executar comandos remotos no veículo ativo").pack(anchor="w", padx=10, pady=(10, 4))
+		ttk.Label(parent, text="Executar comandos remotos no veículo ativo.").pack(anchor="w", padx=10, pady=(10, 4))
 
 		hint = ttk.Label(parent, text="Os comandos serão executados na pasta remota definida no topo da janela.",
 						 foreground="#888")
@@ -536,7 +540,7 @@ class RsyncGUI(tk.Tk):
 
 		ttk.Label(
 			parent,
-			text="Testar módulos individuais da biblioteca fva_car"
+			text="Testar módulos individuais da biblioteca fva_car."
 		).pack(anchor="w", padx=10, pady=(10, 4))
 
 		self.test_device_label = ttk.Label(
@@ -563,6 +567,7 @@ class RsyncGUI(tk.Tk):
 			"Encoder / RC / Chaves": "fva_car/encoder.py",
 			"Ultrassom": "fva_car/ultrasonic.py",
 			"Carro completo": "fva_car/car.py",
+			"Câmera USB": "__camera__",
 		}
 
 		self.test_module_var = tk.StringVar(
@@ -767,11 +772,148 @@ class RsyncGUI(tk.Tk):
 		self.testlog_write(f"Veículo: {name.upper()} ({ip})")
 		self.testlog_write("=" * 60)
 
+		if module_path == "__camera__":
+			self._open_camera_window()
+
 		threading.Thread(
-			target=self._run_module_test,
-			args=(name, ip, module_path),
+			target=self._run_camera_test if module_path == "__camera__" else self._run_module_test,
+			args=(name, ip) if module_path == "__camera__" else (name, ip, module_path),
 			daemon=True
 		).start()
+
+	########################################
+	def _open_camera_window(self):
+		if self.camera_window is not None and self.camera_window.winfo_exists():
+			self.camera_window.destroy()
+		window = tk.Toplevel(self)
+		window.title("FVA — Câmera USB")
+		window.geometry("680x560")
+		window.protocol("WM_DELETE_WINDOW", self._close_camera_window)
+		self.camera_window = window
+		self.camera_label = tk.Label(window, text="Aguardando imagem...", bg="black", fg="white")
+		self.camera_label.pack(fill="both", expand=True, padx=10, pady=10)
+		ttk.Label(window, text="Prévia remota (até 3 FPS). Fechar a janela interrompe o teste.").pack(pady=(0, 8))
+
+	def _close_camera_window(self):
+		self.stop_module_test()
+		if self.camera_window is not None:
+			self.camera_window.destroy()
+		self.camera_window = None
+		self.camera_label = None
+		self.camera_photo = None
+
+	def _show_camera_frame(self, image_bytes):
+		if self.camera_label is None or not self.camera_label.winfo_exists():
+			return
+		try:
+			photo = tk.PhotoImage(data=base64.b64encode(image_bytes).decode("ascii"), format="png")
+			self.camera_photo = photo
+			self.camera_label.configure(image=photo, text="")
+		except tk.TclError as exc:
+			self._queue_test_output(f"Falha ao exibir imagem PNG: {exc}")
+
+	########################################
+	def _run_camera_test(self, name, ip):
+		"""Publica quadros na Raspberry e os lê por SFTP, sem X11 remoto."""
+		workdir = (self.dest_entry.get().strip() or DEFAULT_DEST).rstrip("/")
+		run_id = self.test_run_id
+		base = f"/tmp/fva_camera_{run_id}"
+		log_path, exit_path = base + ".log", base + ".exit"
+		client = sftp = None
+		pid = None
+		finished = False
+		last_seq = 0
+		log_offset = 0
+		log_buffer = b""
+		errors = 0
+		try:
+			client = self._connect_ssh(ip)
+			sftp = client.open_sftp()
+			# Teste implementado diretamente no modulo camera.py da Raspberry.
+			command = (f"cd {shlex.quote(workdir)} && python3 -u fva_car/camera.py "
+					   f"--remote --prefix {shlex.quote(base)} --seconds 60 --fps 3 --aruco")
+			inner = f"{command}; rc=$?; printf '%s\\n' \"$rc\" > {shlex.quote(exit_path)}"
+			launch = f"nohup setsid sh -c {shlex.quote(inner)} > {shlex.quote(log_path)} 2>&1 < /dev/null & echo FVA_PID:$!"
+			_, out, err = client.exec_command(launch, timeout=20)
+			response = out.readline().strip()
+			if not response.startswith("FVA_PID:"):
+				raise RuntimeError(f"Não iniciou a câmera: {response} {err.read(300).decode(errors='replace')}")
+			pid = int(response.split(":", 1)[1])
+			self.test_remote_pid = pid
+			self._queue_test_output("Captura iniciada; prévia na janela da câmera.")
+			if not self.test_running:
+				self._stop_remote_test_process(ip, pid)
+			while self.test_running and not finished:
+				try:
+					if client is None or not client.get_transport() or not client.get_transport().is_active():
+						if client: client.close()
+						client = self._connect_ssh(ip)
+						sftp = None
+					if sftp is None:
+						sftp = client.open_sftp()
+						sftp.get_channel().settimeout(10)
+					try:
+						with sftp.open(base + ".seq", "r") as f:
+							seq = int(f.read().strip())
+						if seq > last_seq:
+							with sftp.open(base + ".png", "rb") as f:
+								frame = f.read()
+							last_seq = seq
+							self.ui(self._show_camera_frame, frame)
+					except IOError:
+						pass  # primeiro quadro ainda não existe
+					try:
+						with sftp.open(log_path, "rb") as f:
+							f.seek(log_offset)
+							chunk = f.read(32768)
+						if chunk:
+							log_offset += len(chunk)
+							log_buffer += chunk
+							while b"\n" in log_buffer:
+								line, log_buffer = log_buffer.split(b"\n", 1)
+								if line: self._queue_test_output(line.decode(errors="replace"))
+					except IOError:
+						pass
+					try:
+						with sftp.open(exit_path, "r") as f:
+							status = f.read().strip()
+						rc = int(status)
+						finished = True
+					except (IOError, ValueError):
+						pass
+					errors = 0
+				except (OSError, EOFError, paramiko.SSHException) as exc:
+					errors += 1
+					if sftp:
+						try: sftp.close()
+						except Exception: pass
+					sftp = None
+					if client:
+						try: client.close()
+						except Exception: pass
+					client = None
+					if errors == 1: self._queue_test_output(f"Reconectando câmera: {exc}")
+					if errors >= 15: raise RuntimeError("Sem comunicação com a câmera após 15 tentativas")
+				time.sleep(0.35)
+			if log_buffer:
+				self._queue_test_output(log_buffer.decode(errors="replace"))
+			self._queue_test_output(f"Teste de câmera finalizado (código {rc})." if finished else "Teste de câmera interrompido.")
+		except Exception as exc:
+			self._queue_test_output(f"Erro no teste da câmera: {exc}")
+		finally:
+			if sftp:
+				try: sftp.close()
+				except Exception: pass
+			if client:
+				try: client.close()
+				except Exception: pass
+			if not finished and pid is not None:
+				self._stop_remote_test_process(ip, pid)
+			self.test_remote_pid = None
+			self.test_remote_ip = None
+			self.test_running = False
+			self.ui(self.test_run_button.configure, state="normal")
+			self.ui(self.test_stop_button.configure, state="disabled")
 
 	########################################
 	def _run_module_test(self, name, ip, module_path):
@@ -904,7 +1046,7 @@ class RsyncGUI(tk.Tk):
 
 		ttk.Label(
 			parent,
-			text="Coletar dados dos experimentos armazenados nas Raspberries"
+			text="Coletar dados dos experimentos armazenados no carrinho."
 		).pack(
 			anchor="w",
 			padx=10,
