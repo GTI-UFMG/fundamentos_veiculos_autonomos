@@ -54,8 +54,9 @@ class Ultrasonic:
 		self.max_range = max_range
 		
 		# ultima leitura valida
-		self.dist = 0.0
+		self.dist = self.max_range
 		self.valid = False
+		self.status = "INIT"
 		self.last_measurement = time.monotonic()
 
 		# Detectar a versao da Raspberry
@@ -133,17 +134,16 @@ class Ultrasonic:
 		# inicializacao
 		time.sleep(0.1)
 
-		# loop de leitura
 		while not self.stop.is_set():
-			d = self.get_measure()
-			if d is not None:
-				with self.lock:
-					self.dist = d
+			d, status = self._measure_with_status()
+			with self.lock:
+				self.dist = self.max_range if d is None else d
+				self.valid = (status == "DETECTED" or status == "OUT_OF_RANGE")
+				self.status = status
+				if self.valid:
 					self.last_measurement = time.monotonic()
-					self.valid = True
-
 			self.stop.wait(SAMPLE_TIME)
-	
+
 	########################################
 	# Funcao para medir distancia
 	########################################			
@@ -152,6 +152,9 @@ class Ultrasonic:
 			# medida eh valida?
 			if (time.monotonic() - self.last_measurement) > SENSOR_TIMEOUT:
 				self.valid = False
+				self.dist = self.max_range
+				if self.status in ("DETECTED", "OUT_OF_RANGE"):
+					self.status = "STALE"
 
 			return self.dist, self.valid
 	
@@ -169,30 +172,39 @@ class Ultrasonic:
 	# Funcao para medir distancia
 	########################################
 	def get_measure(self):
+		"""Mantem a interface original: retorna distancia ou None."""
+		d, status = self._measure_with_status()
+		return d if status in ("DETECTED", "OUT_OF_RANGE") else None
 
-		# envia pulso de trigger
+	def get_status(self):
+		"""Diagnostico da ultima tentativa de leitura."""
+		with self.lock:
+			return self.status
+
+	def _measure_with_status(self):
+		# Se ECHO ja estiver alto, nao ha uma nova borda de subida confiavel.
+		if self.read_func() != 0:
+			return None, "ECHO_STUCK_HIGH"
+
+		self._set_trigger(False)
 		self._set_trigger(True)
 		time.sleep(0.00002)
 		self._set_trigger(False)
 
-		# espera inicio do eco
 		ok1, start_time = self._measure_pulse(1)
+		if not ok1:
+			return None, "NO_ECHO"
 
-		# mede duracao do eco
 		ok2, stop_time = self._measure_pulse(0)
+		if not ok2:
+			return None, "INCOMPLETE_ECHO"
 
-		# deu tudo certo?
-		if not ok1 or not ok2:
-			return None
-
-		# calcula distancia
-		time_elapsed = stop_time - start_time
-		distance = GAIN * time_elapsed
-		
-		if not (self.min_range <= distance <= self.max_range):
-			return None
-
-		return distance
+		distance = GAIN * (stop_time - start_time)
+		if distance < self.min_range:
+			return None, "BELOW_MIN_RANGE"
+		if distance > self.max_range:
+			return self.max_range, "OUT_OF_RANGE"
+		return distance, "DETECTED"
 
 	########################################
 	# mede os pulsos com timeout
@@ -246,12 +258,12 @@ if __name__ == '__main__':
 
 			if valid:
 				print(
-					f"Distancia = {distance:.2f} m | Valida = SIM",
+					f"Distancia = {distance:.2f} m | Obstaculo = SIM ({us.get_status()})",
 					flush=True
 				)
 			else:
 				print(
-					f"Distancia = {distance:.2f} m | Valida = NAO",
+					f"Distancia = {distance:.2f} m | Obstaculo = NAO ({us.get_status()})",
 					flush=True
 				)
 
