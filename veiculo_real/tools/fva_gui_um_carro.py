@@ -425,12 +425,6 @@ class RsyncGUI(tk.Tk):
 
 		ttk.Button(
 			cmd_buttons,
-			text="Gravar Arduino",
-			command=self.flash_arduino
-		).pack(side="left", padx=(0, 6))
-
-		ttk.Button(
-			cmd_buttons,
 			text="Limpar terminal",
 			command=self.clear_cmd_log
 		).pack(side="left")
@@ -606,6 +600,12 @@ class RsyncGUI(tk.Tk):
 
 		ttk.Button(
 			controls,
+			text="Gravar Arduino",
+			command=self.flash_arduino
+		).pack(side="left", padx=4)
+
+		ttk.Button(
+			controls,
 			text="Limpar",
 			command=self.clear_test_log
 		).pack(side="left", padx=4)
@@ -728,6 +728,12 @@ class RsyncGUI(tk.Tk):
 		self.test_log.configure(state="disabled")
 		self.test_status_pending = None
 		self.test_status_mark = None
+		# Descarta mensagens pendentes de execuções anteriores.
+		while True:
+			try:
+				self.test_output_queue.get_nowait()
+			except queue.Empty:
+				break
 
 	########################################
 	def run_module_test(self):
@@ -760,6 +766,8 @@ class RsyncGUI(tk.Tk):
 
 		name, ip = targets[0]
 
+		# Cada novo teste começa com o terminal limpo.
+		self.clear_test_log()
 		self.test_running = True
 		self.test_remote_pid = None
 		self.test_remote_ip = ip
@@ -1656,10 +1664,11 @@ echo 'Gravando Arduino...'
 arduino-cli upload --fqbn arduino:avr:nano:cpu=atmega328old -p "$port" "$sketch_dir/odometer"
 echo 'SUCESSO: firmware gravado no Arduino Nano.'"""
 		command = "sh -c " + shlex.quote(script)
-		self.ui(self.cmdlog_write, "Solicitada compilação e gravação do Arduino Nano...")
+		# A gravação também utiliza o terminal da aba Testar Módulos.
+		self.clear_test_log()
 		threading.Thread(
 			target=self._run_remote_cmds,
-			args=(targets, [command]),
+			args=(targets, [command], True),
 			daemon=True
 		).start()
 
@@ -1677,16 +1686,24 @@ echo 'SUCESSO: firmware gravado no Arduino Nano.'"""
 		else:
 			self.ui(self.cmdlog_write, f"[{name.upper()}] {line}")
 
-	def _run_remote_cmds(self, targets, cmds):
+	def _run_remote_cmds(self, targets, cmds, arduino_flash=False):
 		"""Executa no Raspberry e lê log persistente via SFTP com retomada por offset.
 
 		O processo não depende da sessão que lê a saída. O marcador .exit
 		indica a conclusão, mesmo se a conexão de leitura cair.
 		"""
 		remote_workdir = (self.dest_entry.get().strip() or DEFAULT_DEST).rstrip("/")
+		def report(message):
+			if arduino_flash:
+				self.ui(self.testlog_write, message)
+			else:
+				self.ui(self.cmdlog_write, message)
 		for name, ip in targets:
-			self.ui(self.cmdlog_write, "\n" + "=" * 60)
-			self.ui(self.cmdlog_write, f"💻 Executando carro {name.upper()} ({ip}) - workdir: {remote_workdir}")
+			if arduino_flash:
+				report( f"🔄 {name.upper()}: compilando e gravando Arduino Nano...")
+			else:
+				report( "\n" + "=" * 60)
+				report( f"💻 Executando carro {name.upper()} ({ip}) - workdir: {remote_workdir}")
 			for raw_cmd in cmds:
 				client = None
 				sftp = None
@@ -1696,7 +1713,8 @@ echo 'SUCESSO: firmware gravado no Arduino Nano.'"""
 					base = f"/tmp/fva_gui_{run_id}"
 					log_path = base + ".log"
 					exit_path = base + ".exit"
-					self.ui(self.cmdlog_write, f"$ cd {remote_workdir} && {raw_cmd}")
+					if not arduino_flash:
+						report( f"$ cd {remote_workdir} && {raw_cmd}")
 					# Processo remoto em segundo plano: grava stdout/stderr na Raspberry.
 					# O status é escrito em arquivo separado APÓS a saída terminar.
 					inner = (
@@ -1713,7 +1731,9 @@ echo 'SUCESSO: firmware gravado no Arduino Nano.'"""
 					response = out.readline().strip()
 					if not response.startswith("FVA_PID:"):
 						raise RuntimeError(f"Não foi possível iniciar comando remoto: {response} {err.read(500).decode(errors='replace')}")
-					self.ui(self.cmdlog_write, f"📄 Saída persistente: {log_path}")
+					if not arduino_flash:
+						report( f"📄 Saída persistente: {log_path}")
+					flash_lines = []
 					# Reabre SFTP se necessário; mantém offset para não duplicar dados.
 					offset = 0
 					buffer = b""
@@ -1736,7 +1756,11 @@ echo 'SUCESSO: firmware gravado no Arduino Nano.'"""
 								buffer += chunk
 								while b"\n" in buffer:
 									line, buffer = buffer.split(b"\n", 1)
-									self._handle_remote_log_line(name, line.decode("utf-8", errors="replace"))
+									decoded = line.decode("utf-8", errors="replace")
+									if arduino_flash:
+										flash_lines.append(decoded)
+									else:
+										self._handle_remote_log_line(name, decoded)
 							try:
 								with sftp.open(exit_path, "r") as status_file:
 									rc = int(status_file.read().strip())
@@ -1755,18 +1779,28 @@ echo 'SUCESSO: firmware gravado no Arduino Nano.'"""
 								except Exception: pass
 							client = None
 							if connection_errors == 1:
-								self.ui(self.cmdlog_write, f"⚠️ Comunicação interrompida; tentando recuperar saída: {exc}")
+								report( f"⚠️ Comunicação interrompida; tentando recuperar saída: {exc}")
 							if connection_errors >= 15:
 								raise RuntimeError("Sem comunicação SSH após 15 tentativas. O processo remoto pode continuar; log: " + log_path) from exc
 						time.sleep(0.25 if finished else 0.5)
 					if buffer:
-						self._handle_remote_log_line(name, buffer.decode("utf-8", errors="replace"))
-					if rc != 0:
-						self.ui(self.cmdlog_write, f"⚠️ Retorno {rc} para comando: {raw_cmd}")
+						if arduino_flash:
+							flash_lines.append(buffer.decode("utf-8", errors="replace"))
+						else:
+							self._handle_remote_log_line(name, buffer.decode("utf-8", errors="replace"))
+					if arduino_flash:
+						if rc == 0 and any("SUCESSO: firmware gravado" in line for line in flash_lines):
+							report( f"✅ {name.upper()}: firmware gravado com sucesso.")
+						else:
+							errors = [line.strip() for line in flash_lines if "ERRO:" in line or "Error" in line or "error:" in line or "avrdude:" in line]
+							reason = errors[-1] if errors else f"Código de retorno: {rc}"
+							report( f"❌ {name.upper()}: falha na gravação. {reason} (log: {log_path})")
+					elif rc != 0:
+						report( f"⚠️ Retorno {rc} para comando: {raw_cmd}")
 					else:
-						self.ui(self.cmdlog_write, f"✅ Comando finalizado (código 0)")
+						report( f"✅ Comando finalizado (código 0)")
 				except Exception as exc:
-					self.ui(self.cmdlog_write, f"❌ Erro em {name.upper()} ({ip}): {exc}")
+					report( f"❌ Erro em {name.upper()} ({ip}): {exc}")
 					break
 				finally:
 					if sftp:
@@ -1775,7 +1809,8 @@ echo 'SUCESSO: firmware gravado no Arduino Nano.'"""
 					if client:
 						try: client.close()
 						except Exception: pass
-			self.ui(self.cmdlog_write, f"🏁 Execução encerrada para {name.upper()}")
+			if not arduino_flash:
+				report( f"🏁 Execução encerrada para {name.upper()}")
 
 	########################################
 	# Execução remota (aba 3)
