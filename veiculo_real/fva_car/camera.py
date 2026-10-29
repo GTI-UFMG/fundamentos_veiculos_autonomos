@@ -189,52 +189,99 @@ class Camera:
 	def close(self):
 		if hasattr(self, 'cap') and self.cap is not None:
 			self.cap.release()
-		cv2.destroyAllWindows()
+		try:
+			cv2.destroyAllWindows()
+		except cv2.error:
+			pass
 
 ########################################
-# main test
+# Teste local / remoto
 ########################################
-if __name__ == "__main__":
+def _camera_main():
+	import argparse
+	parser = argparse.ArgumentParser(description="Teste da camera FVA")
+	parser.add_argument("--remote", action="store_true", help="Publica imagens para a GUI sem abrir janela")
+	parser.add_argument("--prefix", default="/tmp/fva_camera", help="Prefixo dos arquivos temporarios")
+	parser.add_argument("--seconds", type=float, default=None)
+	parser.add_argument("--fps", type=float, default=3.0, help="FPS de publicacao no modo remoto")
+	parser.add_argument("--aruco", action="store_true", help="Detecta marcadores ArUco (ID 23)")
+	args = parser.parse_args()
 	
-	# cria a camera
+	seconds = args.seconds if args.seconds is not None else (60.0 if args.remote else 20.0)
+	if seconds <= 0 or args.fps <= 0:
+		parser.error("--seconds e --fps devem ser positivos")
+
 	cam = Camera()
-	print('Camera ok')
-	print(f"Resolucao: {cam.get_resolution()}")
-	print(f"FPS configurado: {cam.get_fps():.1f}")
+	print("Camera ok", flush=True)
+	print(f"Resolucao: {cam.get_resolution()}", flush=True)
+	print(f"FPS configurado: {cam.get_fps():.1f}", flush=True)
+	start = time.monotonic()
+	previous = start
+	count = 0
+	published = 0
+	failures = 0
+	next_publish = start
+	fps_real = 0.0
 	
 	try:
-		t0 = time.time()
-		prev_time = time.time()    # para medir FPS
-		frame_count = 0
-		fps = FRAME_RATE
-
-		while (time.time() - t0) <= 20.0:
+		while time.monotonic() - start < seconds:
 			img = cam.get_image(gray=False)
 			if img is None:
-				print('Nao foi possi­vel capturar a imagem.')
+				failures += 1
+				if failures >= 15:
+					raise RuntimeError("Falha repetida na captura de imagens")
+				time.sleep(0.1)
 				continue
-			
-			# detecta placas
-			#img = cam.detect_placa(img)
-			
-			# detecta Arucos
-			img, _ = cam.detect_aruco(img)
+				
+			failures = 0
+			now = time.monotonic()
+			count += 1
+			if now - previous >= 1.0:
+				fps_real = count / (now - previous)
+				previous = now
+				count = 0
 
-			# calculo de FPS real
-			frame_count += 1
-			now = time.time()
-			if now - prev_time >= 1.0:     # a cada 1 segundo
-				fps = frame_count / (now - prev_time)
-				prev_time = now
-				frame_count = 0
-			  
-			# mostra imagem
-			if not cam.show(img, fps=fps):
-				break
-			
+			if args.remote and now < next_publish:
+				time.sleep(min(0.02, next_publish - now))
+				continue
+				
+			# Mantem o comportamento original de deteccao no teste local.
+			if args.aruco or not args.remote:
+				if not hasattr(cv2, "aruco"):
+					raise RuntimeError("OpenCV sem suporte a ArUco")
+				img, center = cam.detect_aruco(img)
+				if center is not None:
+					print(f"ArUco 23 detectado: {center}", flush=True)
+
+			if args.remote:
+				# Arquivos publicados atomicamente; leitor SFTP nao ve imagens incompletas.
+				frame_path = args.prefix + ".png"
+				seq_path = args.prefix + ".seq"
+				cv2.putText(img, f"FPS: {fps_real:.1f}", (10, 30),
+							cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+				ok, encoded = cv2.imencode(".png", img)
+				if not ok:
+					raise RuntimeError("Falha ao codificar imagem PNG")
+				with open(frame_path + ".tmp", "wb") as f:
+					f.write(encoded.tobytes())
+				os.replace(frame_path + ".tmp", frame_path)
+				published += 1
+				with open(seq_path + ".tmp", "w") as f:
+					f.write(str(published))
+				os.replace(seq_path + ".tmp", seq_path)
+				if published % 10 == 0:
+					print(f"Quadros publicados: {published} | FPS captura: {fps_real:.1f}", flush=True)
+				next_publish = max(next_publish + 1.0 / args.fps, time.monotonic())
+			else:
+				if not cam.show(img, fps=fps_real):
+					break
+					
 	except KeyboardInterrupt:
 		pass
-
-	# fecha tudo
 	finally:
 		cam.close()
+	print(f"Teste concluido. Quadros publicados: {published}" if args.remote else "Teste concluido.", flush=True)
+
+########################################
+if __name__ == "__main__":
+	_camera_main()

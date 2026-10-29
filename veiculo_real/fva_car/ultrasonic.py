@@ -54,8 +54,9 @@ class Ultrasonic:
 		self.max_range = max_range
 		
 		# ultima leitura valida
-		self.dist = 0.0
+		self.dist = self.max_range
 		self.valid = False
+		self.status = "INIT"
 		self.last_measurement = time.monotonic()
 
 		# Detectar a versao da Raspberry
@@ -133,17 +134,16 @@ class Ultrasonic:
 		# inicializacao
 		time.sleep(0.1)
 
-		# loop de leitura
 		while not self.stop.is_set():
-			d = self.get_measure()
-			if d is not None:
-				with self.lock:
-					self.dist = d
+			d, status = self._measure_with_status()
+			with self.lock:
+				self.dist = self.max_range if d is None else d
+				self.valid = (status == "DETECTED" or status == "OUT_OF_RANGE")
+				self.status = status
+				if self.valid:
 					self.last_measurement = time.monotonic()
-					self.valid = True
-
 			self.stop.wait(SAMPLE_TIME)
-	
+
 	########################################
 	# Funcao para medir distancia
 	########################################			
@@ -152,6 +152,9 @@ class Ultrasonic:
 			# medida eh valida?
 			if (time.monotonic() - self.last_measurement) > SENSOR_TIMEOUT:
 				self.valid = False
+				self.dist = self.max_range
+				if self.status in ("DETECTED", "OUT_OF_RANGE"):
+					self.status = "STALE"
 
 			return self.dist, self.valid
 	
@@ -169,30 +172,39 @@ class Ultrasonic:
 	# Funcao para medir distancia
 	########################################
 	def get_measure(self):
+		"""Mantem a interface original: retorna distancia ou None."""
+		d, status = self._measure_with_status()
+		return d if status in ("DETECTED", "OUT_OF_RANGE") else None
 
-		# envia pulso de trigger
+	def get_status(self):
+		"""Diagnostico da ultima tentativa de leitura."""
+		with self.lock:
+			return self.status
+
+	def _measure_with_status(self):
+		# Se ECHO ja estiver alto, nao ha uma nova borda de subida confiavel.
+		if self.read_func() != 0:
+			return None, "ECHO_STUCK_HIGH"
+
+		self._set_trigger(False)
 		self._set_trigger(True)
 		time.sleep(0.00002)
 		self._set_trigger(False)
 
-		# espera inicio do eco
 		ok1, start_time = self._measure_pulse(1)
+		if not ok1:
+			return None, "NO_ECHO"
 
-		# mede duracao do eco
 		ok2, stop_time = self._measure_pulse(0)
+		if not ok2:
+			return None, "INCOMPLETE_ECHO"
 
-		# deu tudo certo?
-		if not ok1 or not ok2:
-			return None
-
-		# calcula distancia
-		time_elapsed = stop_time - start_time
-		distance = GAIN * time_elapsed
-		
-		if not (self.min_range <= distance <= self.max_range):
-			return None
-
-		return distance
+		distance = GAIN * (stop_time - start_time)
+		if distance < self.min_range:
+			return None, "BELOW_MIN_RANGE"
+		if distance > self.max_range:
+			return self.max_range, "OUT_OF_RANGE"
+		return distance, "DETECTED"
 
 	########################################
 	# mede os pulsos com timeout
@@ -233,79 +245,32 @@ class Ultrasonic:
 ########################################################################
 if __name__ == '__main__':
 
-	import matplotlib.pyplot as plt
-	plt.ion()
-	fig = plt.figure(figsize=(8, 4))
-
-	# parametros do teste
-	TEST_TIME = 30.0
-	PLOT_INTERVAL = 2.0
-	PLOT_WINDOW = 5.0
-
-	# dados
-	ts = []
-	dist = []
-	valids = []
-
-	# cria o ultrasom
 	us = Ultrasonic()
 
+	print("Teste: sensor ultrassonico")
+	print("Ctrl+C para sair")
+	print()
+
 	try:
-		t0 = time.monotonic()
-		last_plot = t0
+		while True:
 
-		while (time.monotonic() - t0) <= TEST_TIME:
-
-			# tempo atual
-			now = time.monotonic()
-			t = now - t0
-
-			# le sensor
 			distance, valid = us.get_distance()
 
-			# salva dados
-			ts.append(t)
-			dist.append(distance)
-			valids.append(valid)
-
-			# atualiza grafico a cada 5 segundos
-			if (now - last_plot) >= PLOT_INTERVAL:
-
-				# converte para arrays
-				t_array = np.array(ts)
-				d_array = np.array(dist)
-				v_array = np.array(valids)
-
-				# seleciona ultimos 10 segundos
-				mask = t_array >= (t - PLOT_WINDOW)
-
-				t_plot = t_array[mask]
-				d_plot = d_array[mask]
-				v_plot = v_array[mask]
-
-				# apaga
-				plt.clf()
-
-				# sinal continuo
-				plt.plot(t_plot, d_plot, 'b-', label='Distancia')
-
-				# destaca medidas invalidas
-				plt.scatter(t_plot[~v_plot], d_plot[~v_plot], color='red', label='Medida invalida', zorder=3)
-
-				plt.xlabel('Time [s]')
-				plt.ylabel('Distance [m]')
-
-				plt.ylim([us.min_range - 0.2, us.max_range + 0.2])
-
-				plt.grid()
-				plt.legend()
-				plt.show(block=False)
-				plt.pause(0.1)
-
-				last_plot = now
+			if valid:
+				print(
+					f"Distancia = {distance:.2f} m | Obstaculo = SIM ({us.get_status()})",
+					flush=True
+				)
+			else:
+				print(
+					f"Distancia = {distance:.2f} m | Obstaculo = NAO ({us.get_status()})",
+					flush=True
+				)
 
 			time.sleep(SAMPLE_TIME)
 
+	except KeyboardInterrupt:
+		print("\nTeste encerrado.")
+
 	finally:
-		print('Terminou...')
 		us.close()

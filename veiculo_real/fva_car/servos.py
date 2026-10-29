@@ -28,7 +28,7 @@ GAIN_STERRING_ANGLE = np.deg2rad(50.0)/MAX_STERRING_ANGLE
 ZERO_THROTTLE_ANGLE = np.deg2rad(95.0)
 GAIN_TORQUE_FORWARD = 0.4 # [rad/s] por unidade de pseudo-torque
 GAIN_TORQUE_REVERSE = 1.2 # [rad/s] por unidade de pseudo-torque
-GEAR_SHIFTING_TIME  = 5.0  # tempo para a troca de marcha [s]
+GEAR_SHIFTING_TIME  = 2.5  # tempo para a troca de marcha [s]
 
 class Gear(Enum):
     FORWARD = "forward"
@@ -99,7 +99,7 @@ class Servos:
 	# procedimento de marcha re (demora GEAR_SHIFTING_TIME segundos)
 	def set_reverse(self):
 		
-		# ja esta na marcha certo
+		# ja esta na marcha certa
 		with self.lock:
 			if self.gear == Gear.REVERSE:
 				return
@@ -160,15 +160,15 @@ class Servos:
 			# comecou novo ciclo
 			start_time = time.monotonic()
 			
+			# envia comando de estercamento
 			with self.lock:
 				st_pwm = self.st_pwm
-				
-			# envia comando de estercamento
 			self._set_servo(SERVO_STEERING, st_pwm)
 			
+			# envia comando de tracao
 			with self.lock:
 				if self.gear == Gear.FORWARD:
-					# envia comando de tracao (integra pwm)
+					# integra pwm
 					self.th_pwm += self.dth_pwm * self.dt
 					# limita tracao com anti-windup
 					self.th_pwm = np.clip(self.th_pwm, 0.0, self.max_throttle)
