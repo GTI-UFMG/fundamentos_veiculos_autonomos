@@ -7,20 +7,20 @@
 # DELT - Escola de Engenharia
 # Universidade Federal de Minas Gerais
 ########################################
-
 from fva_car import Car
 import numpy as np
 import matplotlib.pyplot as plt
 import threading
 import time
 
-
+########################################
+# Globais
+########################################
 MAIN_VEL = 0.7
 
 # Frequencia da telemetria enviada para a GUI [Hz]
 TELEMETRY_HZ = 10.0
 TELEMETRY_PERIOD = 1.0 / TELEMETRY_HZ
-
 
 ########################################
 # thread de visao
@@ -35,10 +35,7 @@ def vision_func(car, vision_data, stop_event):
 		frame = car.get_image(gray=True)
 
 		# detecta aruco
-		frame, point = car.cam.detect_aruco(
-			frame,
-			aruco_id=23
-		)
+		frame, point = car.cam.detect_aruco(frame, aruco_id=23)
 
 		# disponibiliza imagem para o main
 		vision_data["frame"] = frame
@@ -50,7 +47,6 @@ def vision_func(car, vision_data, stop_event):
 		cx = point[0] - W/2
 
 		vision_data["refste"] = -np.deg2rad(20.0*cx/(W/2))
-
 
 ########################################
 # main
@@ -77,23 +73,16 @@ if __name__ == "__main__":
 	thread_vision = None
 
 	try:
-
+		# inicializa veiculo
 		car.start_mission()
 
 		########################################
 		# inicia visao somente se solicitada
 		########################################
 		if parameters['camera']:
-
-			thread_vision = threading.Thread(
-				target=vision_func,
-				args=(car, vision_data, stop_event),
-				daemon=True
-			)
-
+			thread_vision = threading.Thread(target=vision_func, args=(car, vision_data, stop_event), daemon=True)
 			thread_vision.start()
 
-		if parameters['camera']:
 			plt.ion()
 			plt.figure(1)
 
@@ -114,19 +103,12 @@ if __name__ == "__main__":
 			if not car.step():
 				break
 
-			########################################
 			# direcao
-			########################################
-			car.set_steer(
-				vision_data["refste"]
-			)
+			car.set_steer(vision_data["refste"])
 
-			########################################
 			# ultrassom
-			########################################
-			dist, valid = car.get_distance()
-
-			if (not valid) or (dist < 0.20):
+			dist, _ = car.get_distance()
+			if dist < 0.20:
 				print(f"Colisao: distance {dist:.2f} [m]")
 				car.set_vel(0.0)
 			else:
@@ -142,9 +124,7 @@ if __name__ == "__main__":
 			# a GUI e subamostrada para 10 Hz.
 			########################################
 			now = time.monotonic()
-
-			if now - t_telemetry >= TELEMETRY_PERIOD:
-
+			if (now - t_telemetry) >= TELEMETRY_PERIOD:
 				print(
 					f"DATA,"
 					f"{car.t:.2f},"
@@ -167,17 +147,12 @@ if __name__ == "__main__":
 			if now - t_plot >= 1.0:
 
 				if parameters['camera']:
-
 					frame = vision_data["frame"]
 
 					if frame is not None:
 
 						plt.cla()
-						plt.imshow(
-							frame,
-							cmap='gray'
-						)
-
+						plt.imshow(frame, cmap='gray')
 						plt.pause(0.001)
 
 				t_plot = now
@@ -189,7 +164,6 @@ if __name__ == "__main__":
 			car.save()
 
 	finally:
-
 		########################################
 		# termina a thread de visao
 		########################################
