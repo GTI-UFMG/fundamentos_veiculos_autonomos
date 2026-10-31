@@ -520,21 +520,19 @@ class Car:
 		
 	########################################
 	# get ultrasonic distance
-	def get_distance(self, max_dist=4.0, d_min=0.3):
+	def get_distance(self, d_min=0.3):
 		
 		# captura a distancia
 		d, valid = self.us.get_distance()
-		d = np.min([d, max_dist])
+		d = np.clip(d, ultrasonic.MIN_RANGE, ultrasonic.MAX_RANGE)
 
-		# toca o buzzer se muito proximo ou invalido
+		# toca o buzzer se muito proximo
 		if self.parameters['us_buzzer']:
-			if not valid:
-				self.bz.beep(0.1)
-			elif d <= d_min:
+			if d <= d_min:
 				self.bz.beep(d/3.0)
 				
 		# retorna distancia
-		return d , valid
+		return d, valid
 	
 	########################################
 	# salva a trajetoria
@@ -679,16 +677,16 @@ if __name__ == "__main__":
 			car.step()
 			
 			# le ultrasom
-			dist, valid = car.get_distance()
+			dist, _ = car.get_distance()
 			# seta torque do motor
-			if valid and dist > 0.10:
-				if t < parameters['ts']/2:
+			if dist > 0.30:
+				if t < parameters['ts']/2.0:
 					car.set_vel(0.7)
 				else:
 					car.set_vel(-0.7)
 			else:
 				car.set_vel(0.0)
-			#
+				
 			# mostra estado a 5 Hz
 			if t - t_print >= 0.2:
 				modo_dir = "\033[31mAUTO\033[0m" if car.sel_direcao else "\033[33mRC\033[0m"

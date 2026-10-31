@@ -26,8 +26,10 @@ GPIO mode options: BOARD/BCM
 GAIN = 343.0/2.0
 TRIGGER_PIN = 24
 ECHO_PIN = 8
-SAMPLE_TIME = 0.1  # 100 ms -> 10 Hz
+SAMPLE_TIME = 0.1  			# 100 ms -> 10 Hz
 SENSOR_TIMEOUT  = 0.30   	# tempo maximo sem medida [s]
+MIN_RANGE = 0.0 			# [m]
+MAX_RANGE = 4.0 			# [m]
 
 ############################################
 # Ultrasonic Class for Raspberry Pi 4 or 5
@@ -36,7 +38,7 @@ class Ultrasonic:
 	########################################
 	# Constructor
 	########################################
-	def __init__(self, trigger_pin=None, echo_pin=None, min_range=0.0, max_range=4.0):
+	def __init__(self, trigger_pin=None, echo_pin=None):
 		
 		"""
 		Initializes the ultrasonic sensor with given trigger and echo pins.
@@ -45,13 +47,11 @@ class Ultrasonic:
 		Args:
 			trigger_pin (int): GPIO pin number for the trigger signal.
 			echo_pin (int): GPIO pin number for the echo signal.
-			min_range (float): Minimum measurable distance in meters.
-			max_range (float): Maximum measurable distance in meters.
 		"""
 		
 		# limites do sensor
-		self.min_range = min_range
-		self.max_range = max_range
+		self.min_range = MIN_RANGE # Minimum measurable distance in meters.
+		self.max_range = MAX_RANGE # Maximum measurable distance in meters.
 		
 		# ultima leitura valida
 		self.dist = self.max_range
@@ -253,20 +253,8 @@ if __name__ == '__main__':
 
 	try:
 		while True:
-
 			distance, valid = us.get_distance()
-
-			if valid:
-				print(
-					f"Distancia = {distance:.2f} m | Obstaculo = SIM ({us.get_status()})",
-					flush=True
-				)
-			else:
-				print(
-					f"Distancia = {distance:.2f} m | Obstaculo = NAO ({us.get_status()})",
-					flush=True
-				)
-
+			print(f"Distancia = {distance:.2f}m | (status: {us.get_status()})", flush=True)
 			time.sleep(SAMPLE_TIME)
 
 	except KeyboardInterrupt:
