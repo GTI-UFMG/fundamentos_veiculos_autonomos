@@ -11,6 +11,9 @@ import time
 import os
 os.environ["QT_QPA_PLATFORM"] = "xcb"  # forca backend X11
 import cv2
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 from pathlib import Path
 
 #---------------
@@ -80,6 +83,17 @@ class Camera:
 		
 		# biblioteca de Arucos
 		self.detect_fn = None
+
+		# Servidor de video: apenas publica quadros recebidos do algoritmo.
+		# Nao abre a camera novamente e nao interfere na captura.
+		self._stream_lock = threading.Lock()
+		self._stream_frame = None
+		self._stream_sequence = 0
+		self._stream_server = None
+		self._stream_thread = None
+		self._stream_fps = 10.0
+		self._stream_scale = 0.5
+		self._stream_last_publish = 0.0
 
 	########################################
 	# procura uma camera disponivel
@@ -171,6 +185,116 @@ class Camera:
 		return img, center
 			
 	########################################
+	# Publica um quadro para a interface (BGR ou escala de cinza).
+	# Chamar apos o processamento; nao realiza captura adicional.
+	def publish_frame(self, frame):
+		if frame is None:
+			return
+		with self._stream_lock:
+			now = time.monotonic()
+			if now - self._stream_last_publish < 1.0 / self._stream_fps:
+				return
+			self._stream_last_publish = now
+			scale = self._stream_scale
+		if scale != 1.0:
+			frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+		with self._stream_lock:
+			self._stream_frame = frame.copy()
+			self._stream_sequence += 1
+
+	########################################
+	# Inicia servidor HTTP em segundo plano, sem dependencias extras.
+	# /frame.png: compativel com PhotoImage do Tkinter
+	# /stream: MJPEG para navegadores, se desejado.
+	def start_stream(self, host="0.0.0.0", port=8080, fps=10, scale=0.5):
+		if fps <= 0 or not 0 < scale <= 1:
+			raise ValueError("fps deve ser positivo e scale deve estar entre 0 e 1")
+		with self._stream_lock:
+			self._stream_fps = float(fps)
+			self._stream_scale = float(scale)
+			self._stream_last_publish = 0.0
+		if self._stream_server is not None:
+			return
+		camera = self
+
+		class VideoHandler(BaseHTTPRequestHandler):
+			def log_message(self, format, *args):
+				pass
+
+			def do_GET(self):
+				path = urlsplit(self.path).path
+				if path not in ("/", "/frame.png", "/stream"):
+					self.send_error(404)
+					return
+				if path == "/":
+					body = b'<html><body><img src="/stream"></body></html>'
+					self.send_response(200)
+					self.send_header("Content-Type", "text/html; charset=utf-8")
+					self.send_header("Content-Length", str(len(body)))
+					self.end_headers()
+					self.wfile.write(body)
+					return
+				if path == "/frame.png":
+					with camera._stream_lock:
+						frame = None if camera._stream_frame is None else camera._stream_frame.copy()
+					if frame is None:
+						self.send_error(503, "Aguardando primeiro quadro")
+						return
+					ok, buf = cv2.imencode(".png", frame)
+					if not ok:
+						self.send_error(500)
+						return
+					body = buf.tobytes()
+					self.send_response(200)
+					self.send_header("Content-Type", "image/png")
+					self.send_header("Cache-Control", "no-store")
+					self.send_header("Content-Length", str(len(body)))
+					self.end_headers()
+					self.wfile.write(body)
+					return
+				try:
+					self.send_response(200)
+					self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+					self.send_header("Cache-Control", "no-store")
+					self.end_headers()
+					last_seq = -1
+					while camera._stream_server is not None:
+						with camera._stream_lock:
+							seq = camera._stream_sequence
+							frame = None if camera._stream_frame is None else camera._stream_frame.copy()
+						if frame is not None and seq != last_seq:
+							ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+							if ok:
+								body = buf.tobytes()
+								self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body + b"\r\n")
+								last_seq = seq
+						time.sleep(0.01)
+				except (BrokenPipeError, ConnectionResetError, OSError):
+					pass
+
+		class Server(ThreadingHTTPServer):
+			daemon_threads = True
+			allow_reuse_address = True
+
+		server = Server((host, int(port)), VideoHandler)
+		self._stream_server = server
+		self._stream_thread = threading.Thread(target=server.serve_forever, daemon=True)
+		self._stream_thread.start()
+		print(f"Camera: transmissao HTTP ativa na porta {port}", flush=True)
+
+	########################################
+	def stop_stream(self):
+		server = self._stream_server
+		if server is None:
+			return
+		self._stream_server = None
+		server.shutdown()
+		server.server_close()
+		if self._stream_thread is not None:
+			self._stream_thread.join(timeout=1.0)
+		self._stream_thread = None
+
+	########################################
 	# mostra imagem
 	def show(self, img, fps=None):
 
@@ -187,6 +311,7 @@ class Camera:
 	########################################
 	# fecha camera
 	def close(self):
+		self.stop_stream()
 		if hasattr(self, 'cap') and self.cap is not None:
 			self.cap.release()
 		try:
@@ -201,17 +326,23 @@ def _camera_main():
 	import argparse
 	parser = argparse.ArgumentParser(description="Teste da camera FVA")
 	parser.add_argument("--remote", action="store_true", help="Publica imagens para a GUI sem abrir janela")
+	parser.add_argument("--stream", action="store_true", help="Transmite imagens por HTTP sem abrir janela")
+	parser.add_argument("--port", type=int, default=8081, help="Porta HTTP do teste (padrao 8081)")
+	parser.add_argument("--scale", type=float, default=0.5, help="Escala da imagem transmitida")
 	parser.add_argument("--prefix", default="/tmp/fva_camera", help="Prefixo dos arquivos temporarios")
 	parser.add_argument("--seconds", type=float, default=None)
-	parser.add_argument("--fps", type=float, default=3.0, help="FPS de publicacao no modo remoto")
+	parser.add_argument("--fps", type=float, default=10.0, help="FPS da transmissao HTTP (padrao 10)")
 	parser.add_argument("--aruco", action="store_true", help="Detecta marcadores ArUco (ID 23)")
 	args = parser.parse_args()
 	
-	seconds = args.seconds if args.seconds is not None else (60.0 if args.remote else 20.0)
+	seconds = args.seconds if args.seconds is not None else (60.0 if (args.remote or args.stream) else 20.0)
 	if seconds <= 0 or args.fps <= 0:
 		parser.error("--seconds e --fps devem ser positivos")
 
 	cam = Camera()
+	if args.stream:
+		cam.start_stream(port=args.port, fps=args.fps, scale=args.scale)
+		print(f"HTTP pronto: porta {args.port}, ate {args.fps:g} FPS, escala {args.scale:g}", flush=True)
 	print("Camera ok", flush=True)
 	print(f"Resolucao: {cam.get_resolution()}", flush=True)
 	print(f"FPS configurado: {cam.get_fps():.1f}", flush=True)
@@ -241,19 +372,21 @@ def _camera_main():
 				previous = now
 				count = 0
 
-			if args.remote and now < next_publish:
+			if args.remote and not args.stream and now < next_publish:
 				time.sleep(min(0.02, next_publish - now))
 				continue
 				
 			# Mantem o comportamento original de deteccao no teste local.
-			if args.aruco or not args.remote:
+			if args.aruco or not (args.remote or args.stream):
 				if not hasattr(cv2, "aruco"):
 					raise RuntimeError("OpenCV sem suporte a ArUco")
 				img, center = cam.detect_aruco(img)
 				if center is not None:
 					print(f"ArUco 23 detectado: {center}", flush=True)
 
-			if args.remote:
+			if args.stream:
+				cam.publish_frame(img)
+			elif args.remote:
 				# Arquivos publicados atomicamente; leitor SFTP nao ve imagens incompletas.
 				frame_path = args.prefix + ".png"
 				seq_path = args.prefix + ".seq"
@@ -280,7 +413,7 @@ def _camera_main():
 		pass
 	finally:
 		cam.close()
-	print(f"Teste concluido. Quadros publicados: {published}" if args.remote else "Teste concluido.", flush=True)
+	print(f"Teste concluido. Quadros publicados: {published}" if args.remote and not args.stream else "Teste concluido.", flush=True)
 
 ########################################
 if __name__ == "__main__":
