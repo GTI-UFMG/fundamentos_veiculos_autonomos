@@ -9,7 +9,6 @@
 ########################################
 from fva_car import Car
 import numpy as np
-import matplotlib.pyplot as plt
 import threading
 import time
 
@@ -18,9 +17,8 @@ import time
 ########################################
 MAIN_VEL = 0.7
 
-# Frequencia da telemetria enviada para a GUI [Hz]
-TELEMETRY_HZ = 10.0
-TELEMETRY_PERIOD = 1.0 / TELEMETRY_HZ
+# Frequencia da telemetria enviada para a GUI
+TELEMETRY_PERIOD = 0.1 # 10 Hz
 
 ########################################
 # thread de visao
@@ -34,11 +32,15 @@ def vision_func(car, vision_data, stop_event):
 		# pega imagem
 		frame = car.get_image(gray=True)
 
-		# detecta aruco
+		if frame is None:
+			time.sleep(0.02)
+			continue
+
+		# detecta aruco (substituir pelo algoritmo do aluno, se necessario)
 		frame, point = car.cam.detect_aruco(frame, aruco_id=23)
 
-		# disponibiliza imagem para o main
-		vision_data["frame"] = frame
+		# A classe Camera cuida de toda a transmissao.
+		car.cam.publish_frame(frame)
 
 		if point is None:
 			continue
@@ -54,7 +56,7 @@ def vision_func(car, vision_data, stop_event):
 if __name__ == "__main__":
 
 	parameters = {
-				'ts'					: 20.0, 	# tempo da execucao
+				'ts'					: 30.0, 	# tempo da execucao
 				'save'					: True,		# salva dados da trajetoria
 				'logfile'				: 'logs/',	# log file
 				'camera'				: False,	# habilitar camera e thread de visao
@@ -65,8 +67,7 @@ if __name__ == "__main__":
 	car = Car(parameters)
 
 	vision_data = {
-		"refste": 0.0,
-		"frame": None
+		"refste": 0.0
 	}
 
 	stop_event = threading.Event()
@@ -80,16 +81,13 @@ if __name__ == "__main__":
 		# inicia visao somente se solicitada
 		########################################
 		if parameters['camera']:
+			car.cam.start_stream()
 			thread_vision = threading.Thread(target=vision_func, args=(car, vision_data, stop_event), daemon=True)
 			thread_vision.start()
 
-			plt.ion()
-			plt.figure(1)
-
 		########################################
-		# temporizadores independentes
+		# temporizador da telemetria
 		########################################
-		t_plot = time.monotonic()
 		t_telemetry = time.monotonic()
 
 		########################################
@@ -108,7 +106,7 @@ if __name__ == "__main__":
 
 			# ultrassom
 			dist, _ = car.get_distance()
-			if dist < 0.20:
+			if dist < 0.30:
 				print(f"Colisao: distance {dist:.2f} [m]")
 				car.set_vel(0.0)
 			else:
@@ -140,22 +138,6 @@ if __name__ == "__main__":
 				)
 
 				t_telemetry = now
-
-			########################################
-			# atualiza grafico aproximadamente 1 Hz
-			########################################
-			if now - t_plot >= 1.0:
-
-				if parameters['camera']:
-					frame = vision_data["frame"]
-
-					if frame is not None:
-
-						plt.cla()
-						plt.imshow(frame, cmap='gray')
-						plt.pause(0.001)
-
-				t_plot = now
 
 		########################################
 		# salva dados
