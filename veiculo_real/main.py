@@ -30,25 +30,27 @@ def vision_func(car, vision_data, stop_event):
 	while not stop_event.is_set():
 
 		# pega imagem
-		frame = car.get_image(gray=True)
+		frame = car.get_image(gray=False)
 
 		if frame is None:
 			time.sleep(0.02)
 			continue
 
 		# detecta aruco (substituir pelo algoritmo do aluno, se necessario)
-		frame, point = car.cam.detect_aruco(frame, aruco_id=23)
+		ARUCO_IDS = [23]
+		frame, centros = car.cam.detect_aruco(frame, ARUCO_IDS)
+		
+		# Seleciona o primeiro marcador visível na ordem de prioridade
+		point = next((centros[id_] for id_ in ARUCO_IDS if id_ in centros), None)
 
-		# A classe Camera cuida de toda a transmissao.
-		car.cam.publish_frame(frame)
-
+		# controle de direcao
 		if point is None:
 			continue
-
-		# esterçamento aponta para o aruco
-		cx = point[0] - W/2
-
-		vision_data["refste"] = -np.deg2rad(20.0*cx/(W/2))
+		cx = point[0] - W / 2
+		vision_data["refste"] = -np.deg2rad(20.0 * cx / (W / 2))
+		
+		# A classe Camera cuida de toda a transmissao.
+		car.cam.publish_frame(frame)
 
 ########################################
 # main
@@ -59,7 +61,7 @@ if __name__ == "__main__":
 				'ts'					: 30.0, 	# tempo da execucao
 				'save'					: True,		# salva dados da trajetoria
 				'logfile'				: 'logs/',	# log file
-				'camera'				: False,	# habilitar camera e thread de visao
+				'camera'				: True,	# habilitar camera e thread de visao
 				'us_buzzer'				: True,		# aviso sonoro para objetos proximos
 				'initial_position'		: [0, 0, np.deg2rad(0)]	# (x, y, theta) configuracao inicial
 			}
@@ -107,7 +109,7 @@ if __name__ == "__main__":
 			# ultrassom
 			dist, _ = car.get_distance()
 			if dist < 0.30:
-				print(f"Colisao: distance {dist:.2f} [m]")
+				#print(f"Colisao: distance {dist:.2f} [m]")
 				car.set_vel(0.0)
 			else:
 				car.set_vel(MAIN_VEL)
