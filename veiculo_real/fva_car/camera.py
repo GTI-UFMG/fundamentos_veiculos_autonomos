@@ -149,41 +149,50 @@ class Camera:
 		return annotated
 
 	########################################
-	# detecta marcadores de AR
+	# detecta marcadores ArUco selecionados
 	def detect_aruco(self, img, aruco_id=23):
-		
-		# inicializa detector ArUco somente no primeiro uso
+		"""Retorna (imagem, centro) para ID unico, ou (imagem, {id: centro}) para lista.
+
+		Apenas os IDs solicitados sao desenhados. Centro = (cx, cy).
+		"""
+		multiple = not isinstance(aruco_id, (int,))
+		requested = {int(v) for v in aruco_id} if multiple else {int(aruco_id)}
+		if any(v < 0 or v >= 100 for v in requested):
+			raise ValueError("IDs ArUco devem estar entre 0 e 99 (DICT_5X5_100)")
+
 		if self.detect_fn is None:
-			# Load the dictionary of ArUco markers and create a parameters object for ArUco detection.
 			if hasattr(cv2.aruco, "ArucoDetector"):
 				dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
 				parameters = cv2.aruco.DetectorParameters()
-				detector   = cv2.aruco.ArucoDetector(dictionary, parameters)
-				self.detect_fn  = lambda img: detector.detectMarkers(img)
+				detector = cv2.aruco.ArucoDetector(dictionary, parameters)
+				self.detect_fn = lambda frame: detector.detectMarkers(frame)
 			else:
 				dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_100)
 				parameters = cv2.aruco.DetectorParameters_create()
-				self.detect_fn  = lambda img: cv2.aruco.detectMarkers(img, dictionary, parameters=parameters)
-		
-		# Detect ArUco markers in the frame.
-		corners, ids, rejected = self.detect_fn(img)
-		
-		# inicialmente, marcador desejado nao foi encontrado
-		center = None
-		
-		# desenha contornos + ids na imagem colorida
-		if ids is not None and len(ids) > 0:
-			cv2.aruco.drawDetectedMarkers(img, corners, ids)  # <- aqui desenha
-			# opcional: destacar apenas um id
-			for i, m_id in enumerate(ids.flatten()):
-				if m_id == aruco_id:
-					pts = corners[i][0].astype(int)
-					cx, cy = pts[:,0].mean(), pts[:,1].mean()
-					center = (cx, cy)
-					cv2.circle(img, (int(cx), int(cy)), 6, (0,255,0), -1)
-		
-		return img, center
-			
+				self.detect_fn = lambda frame: cv2.aruco.detectMarkers(frame, dictionary, parameters=parameters)
+
+		corners, ids, _ = self.detect_fn(img)
+		centers = {}
+		if ids is not None:
+			selected_corners = []
+			selected_ids = []
+			for i, marker_id in enumerate(ids.flatten()):
+				marker_id = int(marker_id)
+				if marker_id not in requested:
+					continue
+				pts = corners[i][0]
+				cx, cy = float(pts[:, 0].mean()), float(pts[:, 1].mean())
+				centers[marker_id] = (cx, cy)
+				selected_corners.append(corners[i])
+				selected_ids.append([marker_id])
+			if selected_ids:
+				import numpy as np
+				cv2.aruco.drawDetectedMarkers(img, selected_corners, np.array(selected_ids, dtype=np.int32))
+				for cx, cy in centers.values():
+					cv2.circle(img, (round(cx), round(cy)), 6, (0, 255, 0), -1)
+
+		return img, centers if multiple else centers.get(int(aruco_id))
+
 	########################################
 	# Publica um quadro para a interface (BGR ou escala de cinza).
 	# Chamar apos o processamento; nao realiza captura adicional.
@@ -332,7 +341,8 @@ def _camera_main():
 	parser.add_argument("--prefix", default="/tmp/fva_camera", help="Prefixo dos arquivos temporarios")
 	parser.add_argument("--seconds", type=float, default=None)
 	parser.add_argument("--fps", type=float, default=10.0, help="FPS da transmissao HTTP (padrao 10)")
-	parser.add_argument("--aruco", action="store_true", help="Detecta marcadores ArUco (ID 23)")
+	parser.add_argument("--aruco", action="store_true", help="Detecta marcadores ArUco (ID 23 por padrao)")
+	parser.add_argument("--aruco-ids", type=int, nargs="+", default=None, metavar="ID", help="IDs ArUco a identificar, por exemplo: --aruco-ids 4 12 23")
 	args = parser.parse_args()
 	
 	seconds = args.seconds if args.seconds is not None else (60.0 if (args.remote or args.stream) else 20.0)
@@ -377,12 +387,15 @@ def _camera_main():
 				continue
 				
 			# Mantem o comportamento original de deteccao no teste local.
-			if args.aruco or not (args.remote or args.stream):
+			if args.aruco or args.aruco_ids is not None or not (args.remote or args.stream):
 				if not hasattr(cv2, "aruco"):
 					raise RuntimeError("OpenCV sem suporte a ArUco")
-				img, center = cam.detect_aruco(img)
-				if center is not None:
-					print(f"ArUco 23 detectado: {center}", flush=True)
+				img, detected = cam.detect_aruco(img, args.aruco_ids if args.aruco_ids is not None else [12, 23])
+				if isinstance(detected, dict):
+					if detected:
+						print(f"ArUcos detectados: {detected}", flush=True)
+				elif detected is not None:
+					print(f"ArUco 23 detectado: {detected}", flush=True)
 
 			if args.stream:
 				cam.publish_frame(img)
