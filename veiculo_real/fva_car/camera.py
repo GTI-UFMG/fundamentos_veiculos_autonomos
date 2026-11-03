@@ -9,7 +9,6 @@
 ########################################
 import time
 import os
-os.environ["QT_QPA_PLATFORM"] = "xcb"  # forca backend X11
 import cv2
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,7 +28,7 @@ cv2.setNumThreads(2)
 ########################################
 RESOLUTION = (640, 480)  # (width, height)
 FRAME_RATE = 30          # target FPS (best-effort)
-MODEL = Path(__file__).resolve().parent / "modelos" / "best.pt" # brazilian-traffic-signs.v3i.yolov8
+MODEL = Path(__file__).resolve().parent / ".." / "outros" / "best.pt" # brazilian-traffic-signs.v3i.yolov8
 
 ########################################
 # classe da camera (USB webcam via OpenCV)
@@ -80,6 +79,13 @@ class Camera:
 		
 		# modelo da YOLO
 		self.model = None
+		# YOLO em segundo plano: apenas o quadro mais recente.
+		self._yolo_condition = threading.Condition()
+		self._yolo_pending = None
+		self._yolo_boxes = []
+		self._yolo_thread = None
+		self._yolo_stop = False
+		self._yolo_error = None
 		
 		# biblioteca de Arucos
 		self.detect_fn = None
@@ -133,20 +139,82 @@ class Camera:
 		return frame
 			
 	########################################
-	# modelo detector de placas de transito
+	# YOLO: inferencia na thread de processamento
+	########################################
 	def detect_placa(self, img):
-		
+		"""Modo sincrono mantido para compatibilidade com chamadas antigas."""
 		if self.model is None:
 			from ultralytics import YOLO
 			self.model = YOLO(str(MODEL))
-		
-		# inferencia
-		results = self.model.predict(img, conf=0.25, iou=0.45, imgsz=640, verbose=False)
-		
-		# desenha resultados
-		annotated = results[0].plot()
-		
-		return annotated
+		results = self.model.predict(img, conf=0.25, iou=0.45,
+									 imgsz=320, device="cpu", verbose=False)
+		return results[0].plot()
+
+	def start_yolo(self):
+		"""Inicia um unico trabalhador YOLO; nao abre janelas OpenCV."""
+		with self._yolo_condition:
+			if self._yolo_thread is not None and self._yolo_thread.is_alive():
+				return
+			self._yolo_stop = False
+			self._yolo_error = None
+			self._yolo_thread = threading.Thread(target=self._yolo_worker, daemon=True)
+			self._yolo_thread.start()
+
+	def _yolo_worker(self):
+		try:
+			from ultralytics import YOLO
+			print(f"YOLO: carregando {MODEL}", flush=True)
+			model = YOLO(str(MODEL))
+			print("YOLO: modelo carregado", flush=True)
+			while True:
+				with self._yolo_condition:
+					while self._yolo_pending is None and not self._yolo_stop:
+						self._yolo_condition.wait()
+					if self._yolo_stop:
+						return
+					frame = self._yolo_pending
+					self._yolo_pending = None
+				t0 = time.perf_counter()
+				results = model.predict(frame, conf=0.25, iou=0.45,
+										imgsz=320, device="cpu", verbose=False)
+				boxes = []
+				for box in results[0].boxes:
+					x1, y1, x2, y2 = (int(v) for v in box.xyxy[0].tolist())
+					cls = int(box.cls[0].item())
+					conf = float(box.conf[0].item())
+					name = str(model.names.get(cls, cls)) if isinstance(model.names, dict) else str(model.names[cls])
+					boxes.append((x1, y1, x2, y2, name, conf))
+				with self._yolo_condition:
+					self._yolo_boxes = boxes
+				print(f"YOLO: {(time.perf_counter()-t0)*1000:.0f} ms | {len(boxes)} deteccoes", flush=True)
+		except Exception as exc:
+			with self._yolo_condition:
+				self._yolo_error = exc
+			print(f"ERRO YOLO: {type(exc).__name__}: {exc}", flush=True)
+
+	def annotate_yolo(self, img):
+		"""Envia quadro mais recente ao trabalhador e desenha ultimas caixas."""
+		with self._yolo_condition:
+			if self._yolo_error is not None:
+				raise RuntimeError("Falha na thread YOLO") from self._yolo_error
+			self._yolo_pending = img.copy()  # sobrescreve quadros ainda nao processados
+			self._yolo_condition.notify()
+			boxes = list(self._yolo_boxes)
+		for x1, y1, x2, y2, name, conf in boxes:
+			cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+			cv2.putText(img, f"{name} {conf:.2f}", (x1, max(20, y1-5)),
+						cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+		return img
+
+	def stop_yolo(self):
+		with self._yolo_condition:
+			self._yolo_stop = True
+			self._yolo_pending = None
+			self._yolo_condition.notify_all()
+		thread = self._yolo_thread
+		if thread is not None:
+			thread.join(timeout=2.0)
+		self._yolo_thread = None
 
 	########################################
 	# detecta marcadores ArUco selecionados
@@ -320,6 +388,7 @@ class Camera:
 	########################################
 	# fecha camera
 	def close(self):
+		self.stop_yolo()
 		self.stop_stream()
 		if hasattr(self, 'cap') and self.cap is not None:
 			self.cap.release()
@@ -341,7 +410,9 @@ def _camera_main():
 	parser.add_argument("--prefix", default="/tmp/fva_camera", help="Prefixo dos arquivos temporarios")
 	parser.add_argument("--seconds", type=float, default=None)
 	parser.add_argument("--fps", type=float, default=10.0, help="FPS da transmissao HTTP (padrao 10)")
-	parser.add_argument("--aruco", action="store_true", help="Detecta marcadores ArUco (ID 23 por padrao)")
+	parser.add_argument("--aruco", action="store_true", help="Detecta marcadores ArUco")
+	parser.add_argument("--normal", action="store_true", help="Exibe imagem sem deteccao")
+	parser.add_argument("--placas", action="store_true", help="Detecta placas com YOLO em thread")
 	parser.add_argument("--aruco-ids", type=int, nargs="+", default=None, metavar="ID", help="IDs ArUco a identificar, por exemplo: --aruco-ids 4 12 23")
 	args = parser.parse_args()
 	
@@ -356,6 +427,16 @@ def _camera_main():
 	print("Camera ok", flush=True)
 	print(f"Resolucao: {cam.get_resolution()}", flush=True)
 	print(f"FPS configurado: {cam.get_fps():.1f}", flush=True)
+	use_aruco = args.aruco or args.aruco_ids is not None
+	if sum((bool(use_aruco), args.normal, args.placas)) > 1:
+		parser.error("Escolha apenas um modo: --normal, --aruco ou --placas")
+	use_yolo = not use_aruco and not args.normal  # mantem YOLO como padrao anterior
+	if use_yolo:
+		cam.start_yolo()
+	if not (args.stream or args.remote):
+		cv2.namedWindow("Vehicle front camera", cv2.WINDOW_NORMAL)
+		cv2.resizeWindow("Vehicle front camera", 960, 720)
+		cv2.waitKey(1)
 	start = time.monotonic()
 	previous = start
 	count = 0
@@ -386,16 +467,12 @@ def _camera_main():
 				time.sleep(min(0.02, next_publish - now))
 				continue
 				
-			# Mantem o comportamento original de deteccao no teste local.
-			if args.aruco or args.aruco_ids is not None or not (args.remote or args.stream):
+			if use_aruco:
 				if not hasattr(cv2, "aruco"):
 					raise RuntimeError("OpenCV sem suporte a ArUco")
 				img, detected = cam.detect_aruco(img, args.aruco_ids if args.aruco_ids is not None else [12, 23])
-				if isinstance(detected, dict):
-					if detected:
-						print(f"ArUcos detectados: {detected}", flush=True)
-				elif detected is not None:
-					print(f"ArUco 23 detectado: {detected}", flush=True)
+			elif use_yolo:
+				img = cam.annotate_yolo(img)
 
 			if args.stream:
 				cam.publish_frame(img)
