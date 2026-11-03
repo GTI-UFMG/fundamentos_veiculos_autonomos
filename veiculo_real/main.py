@@ -44,10 +44,9 @@ def vision_func(car, vision_data, stop_event):
 		point = next((centros[id_] for id_ in ARUCO_IDS if id_ in centros), None)
 
 		# controle de direcao
-		if point is None:
-			continue
-		cx = point[0] - W / 2
-		vision_data["refste"] = -np.deg2rad(20.0 * cx / (W / 2))
+		if point is not None:
+			cx = point[0] - W / 2
+			vision_data["refste"] = -np.deg2rad(20.0 * cx / (W / 2))
 		
 		# A classe Camera cuida de toda a transmissao.
 		car.cam.publish_frame(frame)
