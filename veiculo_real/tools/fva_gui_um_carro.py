@@ -685,8 +685,8 @@ class RsyncGUI(tk.Tk):
 		self.test_modules = {
 			"Encoder / RC / Chaves": "fva_car/encoder.py",
 			"Ultrassom": "fva_car/ultrasonic.py",
-			"Carro completo": "fva_car/car.py",
 			"Câmera USB": "__camera__",
+			"Carro completo": "fva_car/car.py",
 		}
 
 		self.test_module_var = tk.StringVar(
@@ -701,6 +701,19 @@ class RsyncGUI(tk.Tk):
 			width=28
 		)
 		self.test_module_combo.pack(side="left", padx=(8, 16))
+
+		# Exibe o seletor de visao somente quando o modulo Camera USB estiver selecionado.
+		self.camera_mode_frame = ttk.Frame(controls)
+		ttk.Label(self.camera_mode_frame, text="Visão:").pack(side="left")
+		self.camera_mode_var = tk.StringVar(value="Normal")
+		self.camera_mode_combo = ttk.Combobox(
+			self.camera_mode_frame, textvariable=self.camera_mode_var,
+			values=["Normal", "ArUco", "Placas"], state="readonly", width=10
+		)
+		self.camera_mode_combo.pack(side="left", padx=(6, 0))
+		self.camera_mode_frame.pack(side="left", padx=(0, 12))
+		self.test_module_combo.bind("<<ComboboxSelected>>", self._update_camera_mode_visibility)
+		self._update_camera_mode_visibility()
 
 		self.test_run_button = ttk.Button(
 			controls,
@@ -758,6 +771,14 @@ class RsyncGUI(tk.Tk):
 		}.items():
 			self.test_log.tag_configure(f"ansi_{code}", foreground=color)
 		self.test_log.configure(state="disabled")
+
+	########################################
+	def _update_camera_mode_visibility(self, event=None):
+		"""Mostra a escolha de visao apenas para o teste da camera USB."""
+		if self.test_module_var.get() == "Câmera USB":
+			self.camera_mode_frame.pack(side="left", padx=(0, 12), before=self.test_run_button)
+		else:
+			self.camera_mode_frame.pack_forget()
 
 	########################################
 	def _test_insert_colored(self, text):
@@ -907,10 +928,13 @@ class RsyncGUI(tk.Tk):
 
 		if module_path == "__camera__":
 			self._open_camera_window()
+			camera_mode = self.camera_mode_var.get()
+		else:
+			camera_mode = None
 
 		threading.Thread(
 			target=self._run_camera_test if module_path == "__camera__" else self._run_module_test,
-			args=(name, ip) if module_path == "__camera__" else (name, ip, module_path),
+			args=(name, ip, camera_mode) if module_path == "__camera__" else (name, ip, module_path),
 			daemon=True
 		).start()
 
@@ -971,7 +995,7 @@ class RsyncGUI(tk.Tk):
 			self._queue_test_output(f"Falha ao exibir imagem PNG: {exc}")
 
 	########################################
-	def _run_camera_test(self, name, ip):
+	def _run_camera_test(self, name, ip, camera_mode):
 		"""Inicia camera.py --stream por SSH e exibe /frame.png na janela Tkinter."""
 		workdir = (self.dest_entry.get().strip() or DEFAULT_DEST).rstrip("/")
 		run_id = self.test_run_id
@@ -984,8 +1008,9 @@ class RsyncGUI(tk.Tk):
 		last_error = None
 		try:
 			client = self._connect_ssh(ip)
+			mode_flag = {"Normal": "--normal", "ArUco": "--aruco", "Placas": "--placas"}[camera_mode]
 			command = (f"cd {shlex.quote(workdir)} && python3 -u fva_car/camera.py "
-					   f"--stream --port {port} --fps 10 --scale 0.5 --seconds 60 --aruco")
+					   f"--stream --port {port} --fps 10 --scale 0.5 --seconds 60 {mode_flag}")
 			inner = f"{command}; rc=$?; printf '%s\\n' \"$rc\" > {shlex.quote(exit_path)}"
 			launch = (f"nohup setsid sh -c {shlex.quote(inner)} "
 					  f"> {shlex.quote(log_path)} 2>&1 < /dev/null & echo FVA_PID:$!")
