@@ -175,9 +175,11 @@ class RsyncGUI(tk.Tk):
 		self.camera_window = None
 		self.camera_label = None
 		self.camera_photo = None
+		self.camera_frame = None
 		self.live_video_running = False
 		self.live_video_generation = 0
 		self.live_video_photo = None
+		self.live_video_frame = None
 		self.live_video_queue = queue.Queue(maxsize=2)
 		self.test_output_queue = queue.Queue()
 		self.test_status_pending = None
@@ -267,16 +269,16 @@ class RsyncGUI(tk.Tk):
 		self.tab_home = tk.Frame(notebook, bg="black")
 		self.tab_files = ttk.Frame(notebook)
 		self.tab_cmds = ttk.Frame(notebook)
+		self.tab_video = ttk.Frame(notebook)
 		self.tab_tests = ttk.Frame(notebook)
 		self.tab_data = ttk.Frame(notebook)
 
-		notebook.add(self.tab_home, text="🏠 Início")
-		notebook.add(self.tab_files, text="📂 Enviar Arquivos")
-		notebook.add(self.tab_cmds, text="💻 Comandos")
-		notebook.add(self.tab_data, text="📊 Dados")
-		notebook.add(self.tab_tests, text="🧪 Testes")
-		self.tab_video = ttk.Frame(notebook)
-		notebook.add(self.tab_video, text="📷 Vídeo")
+		notebook.add(self.tab_home, 	text="🏠 Início")
+		notebook.add(self.tab_files, 	text="📂 Enviar Arquivos")
+		notebook.add(self.tab_cmds, 	text="💻 Comandos")
+		notebook.add(self.tab_video, 	text="📷 Câmera")
+		notebook.add(self.tab_data, 	text="📊 Coletar Dados")
+		notebook.add(self.tab_tests, 	text="🧪 Módulos de Teste")
 
 		self._build_tab_home(self.tab_home)
 		self._build_tab_files(self.tab_files)
@@ -558,6 +560,7 @@ class RsyncGUI(tk.Tk):
 		self.video_status.pack(anchor="w", padx=10)
 		self.live_video_label = tk.Label(parent, text="Sem video", bg="black", fg="white")
 		self.live_video_label.pack(fill="both", expand=True, padx=10, pady=10)
+		self.live_video_label.bind("<Configure>", self._resize_live_video)
 
 	def start_live_video(self):
 		targets = self.get_selected_devices()
@@ -582,6 +585,7 @@ class RsyncGUI(tk.Tk):
 	def stop_live_video(self):
 		self.live_video_running = False
 		self.live_video_generation += 1
+		self.live_video_frame = None
 		if hasattr(self, "video_status"):
 			self.video_status.config(text="Video desconectado.")
 
@@ -605,6 +609,30 @@ class RsyncGUI(tk.Tk):
 					pass
 				time.sleep(0.7)
 
+	def _resize_live_video(self, event=None):
+		"""Ajusta a imagem ao espaço disponível sem distorcer a proporção."""
+		if self.live_video_frame is None or not self.live_video_running:
+			return
+		try:
+			width = max(1, self.live_video_label.winfo_width() - 12)
+			height = max(1, self.live_video_label.winfo_height() - 12)
+			src_w = self.live_video_frame.width()
+			src_h = self.live_video_frame.height()
+			if src_w < 1 or src_h < 1:
+				return
+			# Zoom inteiro usando Tk nativo: sem Pillow e sem alterar o stream.
+			zoom = max(1, min(width // src_w, height // src_h))
+			photo = self.live_video_frame.zoom(zoom, zoom) if zoom > 1 else self.live_video_frame
+			# Se a área disponível for menor que a imagem original, reduz proporcionalmente.
+			if photo.width() > width or photo.height() > height:
+				shrink = max((photo.width() + width - 1) // width,
+							 (photo.height() + height - 1) // height)
+				photo = photo.subsample(shrink, shrink)
+			self.live_video_photo = photo
+			self.live_video_label.config(image=photo, text="")
+		except tk.TclError:
+			pass
+
 	def _refresh_live_video(self):
 		latest = None
 		try:
@@ -617,9 +645,8 @@ class RsyncGUI(tk.Tk):
 			if self.live_video_running and generation == self.live_video_generation:
 				if data:
 					try:
-						photo = tk.PhotoImage(data=base64.b64encode(data).decode("ascii"), format="png")
-						self.live_video_photo = photo
-						self.live_video_label.config(image=photo, text="")
+						self.live_video_frame = tk.PhotoImage(data=base64.b64encode(data).decode("ascii"), format="png")
+						self._resize_live_video()
 						self.video_status.config(text="Video conectado (imagem publicada pelo main.py)")
 					except Exception as exc:
 						self.video_status.config(text=f"Erro ao exibir quadro: {exc}")
@@ -898,6 +925,7 @@ class RsyncGUI(tk.Tk):
 		self.camera_window = window
 		self.camera_label = tk.Label(window, text="Aguardando imagem...", bg="black", fg="white")
 		self.camera_label.pack(fill="both", expand=True, padx=10, pady=10)
+		self.camera_label.bind("<Configure>", self._resize_camera_test)
 		ttk.Label(window, text="Prévia HTTP (até 10 FPS, 320×240). Fechar a janela interrompe o teste.").pack(pady=(0, 8))
 
 	def _close_camera_window(self):
@@ -907,14 +935,38 @@ class RsyncGUI(tk.Tk):
 		self.camera_window = None
 		self.camera_label = None
 		self.camera_photo = None
+		self.camera_frame = None
+
+	def _resize_camera_test(self, event=None):
+		"""Amplia a prévia do teste preservando a proporção, sem Pillow."""
+		if self.camera_frame is None or self.camera_label is None:
+			return
+		try:
+			if not self.camera_label.winfo_exists():
+				return
+			width = max(1, self.camera_label.winfo_width() - 12)
+			height = max(1, self.camera_label.winfo_height() - 12)
+			src_w = self.camera_frame.width()
+			src_h = self.camera_frame.height()
+			if src_w < 1 or src_h < 1:
+				return
+			zoom = max(1, min(width // src_w, height // src_h))
+			photo = self.camera_frame.zoom(zoom, zoom) if zoom > 1 else self.camera_frame
+			if photo.width() > width or photo.height() > height:
+				shrink = max((photo.width() + width - 1) // width,
+							 (photo.height() + height - 1) // height)
+				photo = photo.subsample(shrink, shrink)
+			self.camera_photo = photo
+			self.camera_label.configure(image=photo, text="")
+		except tk.TclError:
+			pass
 
 	def _show_camera_frame(self, image_bytes):
 		if self.camera_label is None or not self.camera_label.winfo_exists():
 			return
 		try:
-			photo = tk.PhotoImage(data=base64.b64encode(image_bytes).decode("ascii"), format="png")
-			self.camera_photo = photo
-			self.camera_label.configure(image=photo, text="")
+			self.camera_frame = tk.PhotoImage(data=base64.b64encode(image_bytes).decode("ascii"), format="png")
+			self._resize_camera_test()
 		except tk.TclError as exc:
 			self._queue_test_output(f"Falha ao exibir imagem PNG: {exc}")
 
