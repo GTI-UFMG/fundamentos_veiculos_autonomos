@@ -36,6 +36,9 @@ def vision_func(car, vision_data, stop_event):
 			time.sleep(0.02)
 			continue
 
+		# Grava imagem original, antes das anotacoes de visao.
+		car.cam.record_frame(frame, capture_time=time.monotonic())
+
 		# detecta aruco (substituir pelo algoritmo do aluno, se necessario)
 		ARUCO_IDS = [23]
 		frame, centros = car.cam.detect_aruco(frame, ARUCO_IDS)
@@ -57,12 +60,14 @@ def vision_func(car, vision_data, stop_event):
 if __name__ == "__main__":
 
 	parameters = {
-				'ts'					: 30.0, 	# tempo da execucao
-				'save'					: True,		# salva dados da trajetoria
-				'logfile'				: 'logs/',	# log file
-				'camera'				: True,	# habilitar camera e thread de visao
-				'us_buzzer'				: True,		# aviso sonoro para objetos proximos
-				'initial_position'		: [0, 0, np.deg2rad(0)]	# (x, y, theta) configuracao inicial
+				'ts'				: 30.0, 	# tempo da execucao
+				'save'				: True,		# salva dados da trajetoria
+				'logfile'			: 'logs/',	# log file
+				'camera'			: True,
+				'record_video'		: True,
+				'video_fps'			: 10,		# habilitar camera e thread de visao
+				'us_buzzer'			: True,		# aviso sonoro para objetos proximos
+				'initial_position'	: [0, 0, np.deg2rad(0)]	# (x, y, theta) configuracao inicial
 			}
 
 	car = Car(parameters)
@@ -82,6 +87,10 @@ if __name__ == "__main__":
 		# inicia visao somente se solicitada
 		########################################
 		if parameters['camera']:
+			if parameters.get('record_video', False):
+				if not parameters['save']:
+					raise ValueError("record_video=True requer save=True")
+				car.cam.start_recording(car.logfile, t0=car.tinit, fps=parameters['video_fps'])
 			car.cam.start_stream()
 			thread_vision = threading.Thread(target=vision_func, args=(car, vision_data, stop_event), daemon=True)
 			thread_vision.start()
@@ -153,7 +162,10 @@ if __name__ == "__main__":
 		stop_event.set()
 
 		if thread_vision is not None:
-			thread_vision.join(timeout=1.0)
+			thread_vision.join(timeout=2.0)
+		# Fecha MP4 mesmo se ocorrer uma excecao na missao.
+		if parameters['camera']:
+			car.cam.stop_recording()
 
 		car.close()
 
