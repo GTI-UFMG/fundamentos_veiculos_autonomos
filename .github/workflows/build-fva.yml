@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           python -m PyInstaller --noconfirm --clean --windowed --onedir \
-            --name FVA --add-data "assets:assets" \
+            --name FVA --add-data "veiculo_real/assets:assets" \
             tools/fva_gui_um_carro.py
       - name: Compactar aplicativo
         shell: python
