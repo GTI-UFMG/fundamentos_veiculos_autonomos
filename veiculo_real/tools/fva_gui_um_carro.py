@@ -11,7 +11,6 @@
 # GUI Tkinter para envio de arquivos e execução remota em múltiplas Raspberry Pis,
 # com senha SSH padrão (DEFAULT_PASS) pré-preenchida no campo.
 import os
-import sys
 import re
 import posixpath
 import shlex
@@ -32,18 +31,6 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
-def project_root():
-    """Raiz do projeto no código-fonte ou diretório de dados do PyInstaller."""
-    if getattr(sys, "frozen", False):
-        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def default_experiments_dir():
-    """Pasta persistente e gravável, independente do diretório de execução."""
-    return os.path.join(os.path.expanduser("~"), "FVA", "experimentos")
-
 
 ########################################
 # Configurações (ajuste aqui)
@@ -250,7 +237,7 @@ class RsyncGUI(tk.Tk):
 		).pack(anchor="w")
 
 		# logo UFMG
-		BASE_DIR = project_root()
+		BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 		logo_path = os.path.join(BASE_DIR, "assets", "ufmg_logo.png")
 		self.ufmg_logo = tk.PhotoImage(file=logo_path)
 		# reduz a imagem pela metade
@@ -1226,7 +1213,7 @@ class RsyncGUI(tk.Tk):
 		self.data_dest_entry = ttk.Entry(local_frame)
 		self.data_dest_entry.insert(
 			0,
-			default_experiments_dir()
+			os.path.join(os.getcwd(), "experimentos")
 		)
 		self.data_dest_entry.pack(
 			side="left",
