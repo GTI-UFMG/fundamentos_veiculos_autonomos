@@ -37,8 +37,8 @@ jobs:
       - name: Verificar arquivos de imagem
         shell: bash
         run: |
-          test -f assets/ufmg_logo.png || { echo 'Falta assets/ufmg_logo.png'; exit 1; }
-          test -f assets/wallpaper_fva.png || { echo 'Falta assets/wallpaper_fva.png'; exit 1; }
+          test -f veiculo_real/assets/ufmg_logo.png || { echo 'Falta veiculo_real/assets/ufmg_logo.png'; exit 1; }
+          test -f veiculo_real/assets/wallpaper_fva.png || { echo 'Falta veiculo_real/assets/wallpaper_fva.png'; exit 1; }
       - name: Dependências gráficas do Linux
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y python3-tk libgl1
