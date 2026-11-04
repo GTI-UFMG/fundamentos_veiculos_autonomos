@@ -11,6 +11,8 @@ import time
 import os
 import cv2
 import threading
+import queue
+import csv
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 from pathlib import Path
@@ -100,6 +102,18 @@ class Camera:
 		self._stream_fps = 10.0
 		self._stream_scale = 0.5
 		self._stream_last_publish = 0.0
+
+		# Gravacao independente da transmissao HTTP e da inferencia.
+		self._record_lock = threading.Lock()
+		self._record_queue = None
+		self._record_thread = None
+		self._record_writer = None
+		self._record_fps = 10.0
+		self._record_last_capture = float('-inf')
+		self._record_t0 = None
+		self._record_path = None
+		self._record_error = None
+		self._record_dropped = 0
 
 	########################################
 	# procura uma camera disponivel
@@ -262,6 +276,100 @@ class Camera:
 		return img, centers if multiple else centers.get(int(aruco_id))
 
 	########################################
+	# Gravacao de video e timestamps em thread separada.
+	########################################
+	def start_recording(self, directory, t0, fps=10.0):
+		"""Grava camera.mp4 e video_timestamps.csv na pasta do experimento.
+
+		t0 deve ser a mesma origem monotonic usada para car.t.
+		"""
+		if fps <= 0:
+			raise ValueError("FPS de gravacao deve ser positivo")
+		with self._record_lock:
+			if self._record_thread is not None:
+				raise RuntimeError("Gravacao ja iniciada")
+			os.makedirs(directory, exist_ok=True)
+			path = os.path.join(directory, "camera.mp4")
+			width, height = self.get_resolution()
+			writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), float(fps), (width, height))
+			if not writer.isOpened():
+				writer.release()
+				raise RuntimeError(f"Nao foi possivel abrir o arquivo de video: {path}")
+			self._record_writer = writer
+			self._record_queue = queue.Queue(maxsize=3)
+			self._record_fps = float(fps)
+			self._record_last_capture = float('-inf')
+			self._record_t0 = float(t0)
+			self._record_path = directory
+			self._record_error = None
+			self._record_dropped = 0
+			self._record_thread = threading.Thread(target=self._record_worker, daemon=True)
+			self._record_thread.start()
+		print(f"Camera: gravando video em {path} ({fps:g} FPS)", flush=True)
+
+	def record_frame(self, frame, capture_time=None):
+		"""Nao bloqueia: descarta quadros quando a gravacao nao acompanha."""
+		if frame is None:
+			return
+		if capture_time is None:
+			capture_time = time.monotonic()
+		with self._record_lock:
+			q = self._record_queue
+			if q is None:
+				return
+			if capture_time - self._record_last_capture < 1.0 / self._record_fps:
+				return
+			self._record_last_capture = capture_time
+			try:
+				q.put_nowait((frame.copy(), capture_time - self._record_t0))
+			except queue.Full:
+				self._record_dropped += 1
+
+	def _record_worker(self):
+		writer = self._record_writer
+		q = self._record_queue
+		filename = os.path.join(self._record_path, "video_timestamps.csv")
+		try:
+			with open(filename, "w", newline="", encoding="utf-8") as file:
+				csv_writer = csv.writer(file)
+				csv_writer.writerow(("frame", "t"))
+				index = 0
+				while True:
+					item = q.get()
+					if item is None:
+						break
+					frame, timestamp = item
+					writer.write(frame)
+					csv_writer.writerow((index, f"{timestamp:.6f}"))
+					index += 1
+			print(f"Camera: {index} quadros gravados; {self._record_dropped} descartados", flush=True)
+		except Exception as exc:
+			self._record_error = exc
+			print(f"ERRO ao gravar video: {exc}", flush=True)
+		finally:
+			writer.release()
+
+	def stop_recording(self):
+		"""Espera a fila esvaziar e fecha o MP4 antes de retornar."""
+		with self._record_lock:
+			thread = self._record_thread
+			q = self._record_queue
+			self._record_queue = None
+			self._record_thread = None
+		if thread is None:
+			return
+		# O trabalhador consome a fila; sentinela apos os quadros pendentes.
+		while thread.is_alive():
+			try:
+				q.put(None, timeout=0.2)
+				break
+			except queue.Full:
+				continue
+		thread.join()
+		if self._record_error is not None:
+			raise RuntimeError("Falha durante a gravacao do video") from self._record_error
+
+	########################################
 	# Publica um quadro para a interface (BGR ou escala de cinza).
 	# Chamar apos o processamento; nao realiza captura adicional.
 	def publish_frame(self, frame):
@@ -388,6 +496,7 @@ class Camera:
 	########################################
 	# fecha camera
 	def close(self):
+		self.stop_recording()
 		self.stop_yolo()
 		self.stop_stream()
 		if hasattr(self, 'cap') and self.cap is not None:
