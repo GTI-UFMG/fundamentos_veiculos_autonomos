@@ -88,10 +88,10 @@ class Car:
 		
 		# monitorar calibracao
 		self.a_model = 0.0
-		self.a_x = 0.0
+		self.a_x = np.nan
 		self.w_model = 0.0
-		self.w_imu = 0.0
-		self.yaw_mag = 0.0
+		self.w_imu = np.nan
+		self.yaw_mag = np.nan
 		
 		# comando de aceleracao
 		self.u = 0.0
@@ -145,12 +145,14 @@ class Car:
 			print(f"\033[31mErro no velocimetro: {e}\033[0m", flush=True)
 			raise
 		
-		# imu
+		# IMU opcional: o carrinho opera com odometria/modelo se estiver ausente.
+		self.imu = None
 		try:
 			self.imu = imu.IMU()
+			print("\033[32mIMU disponivel.\033[0m", flush=True)
 		except Exception as e:
-			print(f"\033[31mErro na IMU: {e}\033[0m", flush=True)
-			raise
+			self.imu = None
+			print(f"\033[33mIMU nao disponivel: {e}. Usando modelo cinematico.\033[0m", flush=True)
 		
 		# ultrasom
 		try:
@@ -203,6 +205,21 @@ class Car:
 			print("\033[33m##############################\033[0m", flush=True)
 
 	########################################
+	# Desabilita a IMU se ela falhar durante a execucao.
+	def disable_imu(self, error):
+		print(f"\033[33mIMU desconectada: {error}. Continuando com odometria.\033[0m", flush=True)
+		old_imu = self.imu
+		self.imu = None
+		self.w_imu = np.nan
+		self.a_x = np.nan
+		self.yaw_mag = np.nan
+		if old_imu is not None:
+			try:
+				old_imu.close()
+			except Exception:
+				pass
+
+	########################################
 	# comeca a missao
 	def start_mission(self):
 		
@@ -215,10 +232,14 @@ class Car:
 				print("\033[32mOrigem GPS definida.\033[0m", flush=True)
 				
 				# heading inicial pela bussola
-				_, _, yaw_mag = self.imu.get_euler(degrees=False)
-				if yaw_mag is not None:
-					self.th = yaw_mag
-					print("\033[32mHeading inicial definido pela bussola.\033[0m", flush=True)
+				if self.imu is not None:
+					try:
+						_, _, yaw_mag = self.imu.get_euler(degrees=False)
+						if yaw_mag is not None and np.isfinite(yaw_mag):
+							self.th = yaw_mag
+							print("\033[32mHeading inicial definido pela bussola.\033[0m", flush=True)
+					except Exception as e:
+						self.disable_imu(e)
 			else:
 				print("\033[33mNao foi possivel definir origem GPS.\033[0m", flush=True)
 				
@@ -340,14 +361,14 @@ class Car:
 		yaw = self.th + self.w*self.dt
 
 		# corrige com bussola somente se houver GPS
-		if self.gps is not None:
-			_, _, self.yaw_mag = self.imu.get_euler(degrees=False)
-
-			if self.yaw_mag is not None:
-				K = 0*0.05
-				# erro angular corretamente embrulhado
-				error = np.arctan2(np.sin(self.yaw_mag - yaw), np.cos(self.yaw_mag - yaw))
-				yaw += K*error
+		if self.gps is not None and self.imu is not None:
+			try:
+				_, _, yaw_mag = self.imu.get_euler(degrees=False)
+				if yaw_mag is not None and np.isfinite(yaw_mag):
+					self.yaw_mag = yaw_mag
+					# Correcao magnetica desativada no codigo original (K=0).
+			except Exception as e:
+				self.disable_imu(e)
 
 		# mantem entre 0 e 2*pi
 		yaw = yaw % (2.0*np.pi)
@@ -369,14 +390,22 @@ class Car:
 
 		# velocidade angular pelo modelo cinematico
 		self.w_model = (vf / CAR['L']) * np.tan(self.st)
-
-		# velocidade angular medida pela IMU
-		_, _, g_z = self.imu.get_gyro()
-		self.w_imu = np.deg2rad(g_z)
-
-		# fusao modelo + IMU
-		K = 0*0.8
-		w = (1.0 - K)*self.w_model + K*self.w_imu
+		w = self.w_model
+		
+		# IMU somente para monitoramento; fusao desativada no codigo original.
+		if self.imu is not None:
+			try:
+				_, _, g_z = self.imu.get_gyro()
+				self.w_imu = np.deg2rad(g_z) if g_z is not None else np.nan
+				
+				# fusao modelo + IMU
+				#K = 0*0.8
+				#w = (1.0 - K)*self.w_model + K*self.w_imu
+				
+			except Exception as e:
+				self.disable_imu(e)
+		else:
+			self.w_imu = np.nan
 
 		# filtra velocidade angular
 		wf = self.w_filt.filter(w)
@@ -393,12 +422,22 @@ class Car:
 		else:
 			self.a_model = 0.0
 
-		# aceleracao medida pela IMU
-		self.a_x, _, _ = self.imu.get_accel()
-
-		# fusao sensorial
-		K = 0*0.2
-		a = (1.0 - K)*self.a_model + K*self.a_x
+		a = self.a_model
+				
+		# IMU somente para monitoramento; fusao desativada no codigo original.
+		if self.imu is not None:
+			try:
+				a_x, _, _ = self.imu.get_accel()
+				self.a_x = a_x if a_x is not None else np.nan
+				
+				# fusao sensorial
+				#K = 0*0.2
+				#a = (1.0 - K)*self.a_model + K*self.a_x
+				
+			except Exception as e:
+				self.disable_imu(e)
+		else:
+			self.a_x = np.nan
 
 		# filtra
 		af = self.a_filt.filter(a)
@@ -629,7 +668,8 @@ class Car:
 		self.odometer.close()
 		self.atuador.close()
 		self.us.close()
-		self.imu.close()
+		if self.imu is not None:
+			self.imu.close()
 		if self.parameters['camera']:
 			self.cam.close()
 		if self.gps is not None:
