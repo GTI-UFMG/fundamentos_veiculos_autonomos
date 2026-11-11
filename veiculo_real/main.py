@@ -9,7 +9,6 @@
 ########################################
 from fva_car import Car
 import numpy as np
-import matplotlib.pyplot as plt
 import threading
 import time
 
@@ -18,9 +17,8 @@ import time
 ########################################
 MAIN_VEL = 0.7
 
-# Frequencia da telemetria enviada para a GUI [Hz]
-TELEMETRY_HZ = 10.0
-TELEMETRY_PERIOD = 1.0 / TELEMETRY_HZ
+# Frequencia da telemetria enviada para a GUI
+TELEMETRY_PERIOD = 0.1 # 10 Hz
 
 ########################################
 # thread de visao
@@ -32,21 +30,29 @@ def vision_func(car, vision_data, stop_event):
 	while not stop_event.is_set():
 
 		# pega imagem
-		frame = car.get_image(gray=True)
+		frame = car.get_image(gray=False)
 
-		# detecta aruco
-		frame, point = car.cam.detect_aruco(frame, aruco_id=23)
-
-		# disponibiliza imagem para o main
-		vision_data["frame"] = frame
-
-		if point is None:
+		if frame is None:
+			time.sleep(0.02)
 			continue
 
-		# esterçamento aponta para o aruco
-		cx = point[0] - W/2
+		# Grava imagem original, antes das anotacoes de visao.
+		car.cam.record_frame(frame, capture_time=time.monotonic())
 
-		vision_data["refste"] = -np.deg2rad(20.0*cx/(W/2))
+		# detecta aruco (substituir pelo algoritmo do aluno, se necessario)
+		ARUCO_IDS = [23]
+		frame, centros = car.cam.detect_aruco(frame, ARUCO_IDS)
+		
+		# Seleciona o primeiro marcador visível na ordem de prioridade
+		point = next((centros[id_] for id_ in ARUCO_IDS if id_ in centros), None)
+
+		# controle de direcao
+		if point is not None:
+			cx = point[0] - W / 2
+			vision_data["refste"] = -np.deg2rad(20.0 * cx / (W / 2))
+		
+		# A classe Camera cuida de toda a transmissao.
+		car.cam.publish_frame(frame)
 
 ########################################
 # main
@@ -54,19 +60,20 @@ def vision_func(car, vision_data, stop_event):
 if __name__ == "__main__":
 
 	parameters = {
-				'ts'					: 20.0, 	# tempo da execucao
-				'save'					: True,		# salva dados da trajetoria
-				'logfile'				: 'logs/',	# log file
-				'camera'				: False,	# habilitar camera e thread de visao
-				'us_buzzer'				: True,		# aviso sonoro para objetos proximos
-				'initial_position'		: [0, 0, np.deg2rad(0)]	# (x, y, theta) configuracao inicial
+				'ts'				: 30.0, 	# tempo da execucao
+				'save'				: True,		# salva dados da trajetoria
+				'logfile'			: 'logs/',	# log file
+				'camera'			: True,
+				'record_video'		: True,
+				'video_fps'			: 10,		# habilitar camera e thread de visao
+				'us_buzzer'			: True,		# aviso sonoro para objetos proximos
+				'initial_position'	: [0, 0, np.deg2rad(0)]	# (x, y, theta) configuracao inicial
 			}
 
 	car = Car(parameters)
 
 	vision_data = {
-		"refste": 0.0,
-		"frame": None
+		"refste": 0.0
 	}
 
 	stop_event = threading.Event()
@@ -80,16 +87,17 @@ if __name__ == "__main__":
 		# inicia visao somente se solicitada
 		########################################
 		if parameters['camera']:
+			if parameters.get('record_video', False):
+				if not parameters['save']:
+					raise ValueError("record_video=True requer save=True")
+				car.cam.start_recording(car.logfile, t0=car.tinit, fps=parameters['video_fps'])
+			car.cam.start_stream()
 			thread_vision = threading.Thread(target=vision_func, args=(car, vision_data, stop_event), daemon=True)
 			thread_vision.start()
 
-			plt.ion()
-			plt.figure(1)
-
 		########################################
-		# temporizadores independentes
+		# temporizador da telemetria
 		########################################
-		t_plot = time.monotonic()
 		t_telemetry = time.monotonic()
 
 		########################################
@@ -108,8 +116,8 @@ if __name__ == "__main__":
 
 			# ultrassom
 			dist, _ = car.get_distance()
-			if dist < 0.20:
-				print(f"Colisao: distance {dist:.2f} [m]")
+			if dist < 0.30:
+				#print(f"Colisao: distance {dist:.2f} [m]")
 				car.set_vel(0.0)
 			else:
 				car.set_vel(MAIN_VEL)
@@ -141,22 +149,6 @@ if __name__ == "__main__":
 
 				t_telemetry = now
 
-			########################################
-			# atualiza grafico aproximadamente 1 Hz
-			########################################
-			if now - t_plot >= 1.0:
-
-				if parameters['camera']:
-					frame = vision_data["frame"]
-
-					if frame is not None:
-
-						plt.cla()
-						plt.imshow(frame, cmap='gray')
-						plt.pause(0.001)
-
-				t_plot = now
-
 		########################################
 		# salva dados
 		########################################
@@ -170,7 +162,10 @@ if __name__ == "__main__":
 		stop_event.set()
 
 		if thread_vision is not None:
-			thread_vision.join(timeout=1.0)
+			thread_vision.join(timeout=2.0)
+		# Fecha MP4 mesmo se ocorrer uma excecao na missao.
+		if parameters['camera']:
+			car.cam.stop_recording()
 
 		car.close()
 

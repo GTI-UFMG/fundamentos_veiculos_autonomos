@@ -9,8 +9,12 @@
 ########################################
 import time
 import os
-os.environ["QT_QPA_PLATFORM"] = "xcb"  # forca backend X11
 import cv2
+import threading
+import queue
+import csv
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 from pathlib import Path
 
 #---------------
@@ -26,7 +30,7 @@ cv2.setNumThreads(2)
 ########################################
 RESOLUTION = (640, 480)  # (width, height)
 FRAME_RATE = 30          # target FPS (best-effort)
-MODEL = Path(__file__).resolve().parent / "modelos" / "best.pt" # brazilian-traffic-signs.v3i.yolov8
+MODEL = Path(__file__).resolve().parent / ".." / "outros" / "best.pt" # brazilian-traffic-signs.v3i.yolov8
 
 ########################################
 # classe da camera (USB webcam via OpenCV)
@@ -77,9 +81,39 @@ class Camera:
 		
 		# modelo da YOLO
 		self.model = None
+		# YOLO em segundo plano: apenas o quadro mais recente.
+		self._yolo_condition = threading.Condition()
+		self._yolo_pending = None
+		self._yolo_boxes = []
+		self._yolo_thread = None
+		self._yolo_stop = False
+		self._yolo_error = None
 		
 		# biblioteca de Arucos
 		self.detect_fn = None
+
+		# Servidor de video: apenas publica quadros recebidos do algoritmo.
+		# Nao abre a camera novamente e nao interfere na captura.
+		self._stream_lock = threading.Lock()
+		self._stream_frame = None
+		self._stream_sequence = 0
+		self._stream_server = None
+		self._stream_thread = None
+		self._stream_fps = 10.0
+		self._stream_scale = 0.5
+		self._stream_last_publish = 0.0
+
+		# Gravacao independente da transmissao HTTP e da inferencia.
+		self._record_lock = threading.Lock()
+		self._record_queue = None
+		self._record_thread = None
+		self._record_writer = None
+		self._record_fps = 10.0
+		self._record_last_capture = float('-inf')
+		self._record_t0 = None
+		self._record_path = None
+		self._record_error = None
+		self._record_dropped = 0
 
 	########################################
 	# procura uma camera disponivel
@@ -119,57 +153,332 @@ class Camera:
 		return frame
 			
 	########################################
-	# modelo detector de placas de transito
+	# YOLO: inferencia na thread de processamento
+	########################################
 	def detect_placa(self, img):
-		
+		"""Modo sincrono mantido para compatibilidade com chamadas antigas."""
 		if self.model is None:
 			from ultralytics import YOLO
 			self.model = YOLO(str(MODEL))
-		
-		# inferencia
-		results = self.model.predict(img, conf=0.25, iou=0.45, imgsz=640, verbose=False)
-		
-		# desenha resultados
-		annotated = results[0].plot()
-		
-		return annotated
+		results = self.model.predict(img, conf=0.25, iou=0.45,
+									 imgsz=320, device="cpu", verbose=False)
+		return results[0].plot()
+
+	def start_yolo(self):
+		"""Inicia um unico trabalhador YOLO; nao abre janelas OpenCV."""
+		with self._yolo_condition:
+			if self._yolo_thread is not None and self._yolo_thread.is_alive():
+				return
+			self._yolo_stop = False
+			self._yolo_error = None
+			self._yolo_thread = threading.Thread(target=self._yolo_worker, daemon=True)
+			self._yolo_thread.start()
+
+	def _yolo_worker(self):
+		try:
+			from ultralytics import YOLO
+			print(f"YOLO: carregando {MODEL}", flush=True)
+			model = YOLO(str(MODEL))
+			print("YOLO: modelo carregado", flush=True)
+			while True:
+				with self._yolo_condition:
+					while self._yolo_pending is None and not self._yolo_stop:
+						self._yolo_condition.wait()
+					if self._yolo_stop:
+						return
+					frame = self._yolo_pending
+					self._yolo_pending = None
+				t0 = time.perf_counter()
+				results = model.predict(frame, conf=0.25, iou=0.45,
+										imgsz=320, device="cpu", verbose=False)
+				boxes = []
+				for box in results[0].boxes:
+					x1, y1, x2, y2 = (int(v) for v in box.xyxy[0].tolist())
+					cls = int(box.cls[0].item())
+					conf = float(box.conf[0].item())
+					name = str(model.names.get(cls, cls)) if isinstance(model.names, dict) else str(model.names[cls])
+					boxes.append((x1, y1, x2, y2, name, conf))
+				with self._yolo_condition:
+					self._yolo_boxes = boxes
+				print(f"YOLO: {(time.perf_counter()-t0)*1000:.0f} ms | {len(boxes)} deteccoes", flush=True)
+		except Exception as exc:
+			with self._yolo_condition:
+				self._yolo_error = exc
+			print(f"ERRO YOLO: {type(exc).__name__}: {exc}", flush=True)
+
+	def annotate_yolo(self, img):
+		"""Envia quadro mais recente ao trabalhador e desenha ultimas caixas."""
+		with self._yolo_condition:
+			if self._yolo_error is not None:
+				raise RuntimeError("Falha na thread YOLO") from self._yolo_error
+			self._yolo_pending = img.copy()  # sobrescreve quadros ainda nao processados
+			self._yolo_condition.notify()
+			boxes = list(self._yolo_boxes)
+		for x1, y1, x2, y2, name, conf in boxes:
+			cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+			cv2.putText(img, f"{name} {conf:.2f}", (x1, max(20, y1-5)),
+						cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+		return img
+
+	def stop_yolo(self):
+		with self._yolo_condition:
+			self._yolo_stop = True
+			self._yolo_pending = None
+			self._yolo_condition.notify_all()
+		thread = self._yolo_thread
+		if thread is not None:
+			thread.join(timeout=2.0)
+		self._yolo_thread = None
 
 	########################################
-	# detecta marcadores de AR
+	# detecta marcadores ArUco selecionados
 	def detect_aruco(self, img, aruco_id=23):
-		
-		# inicializa detector ArUco somente no primeiro uso
+		"""Retorna (imagem, centro) para ID unico, ou (imagem, {id: centro}) para lista.
+
+		Apenas os IDs solicitados sao desenhados. Centro = (cx, cy).
+		"""
+		multiple = not isinstance(aruco_id, (int,))
+		requested = {int(v) for v in aruco_id} if multiple else {int(aruco_id)}
+		if any(v < 0 or v >= 100 for v in requested):
+			raise ValueError("IDs ArUco devem estar entre 0 e 99 (DICT_5X5_100)")
+
 		if self.detect_fn is None:
-			# Load the dictionary of ArUco markers and create a parameters object for ArUco detection.
 			if hasattr(cv2.aruco, "ArucoDetector"):
 				dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
 				parameters = cv2.aruco.DetectorParameters()
-				detector   = cv2.aruco.ArucoDetector(dictionary, parameters)
-				self.detect_fn  = lambda img: detector.detectMarkers(img)
+				detector = cv2.aruco.ArucoDetector(dictionary, parameters)
+				self.detect_fn = lambda frame: detector.detectMarkers(frame)
 			else:
 				dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_100)
 				parameters = cv2.aruco.DetectorParameters_create()
-				self.detect_fn  = lambda img: cv2.aruco.detectMarkers(img, dictionary, parameters=parameters)
-		
-		# Detect ArUco markers in the frame.
-		corners, ids, rejected = self.detect_fn(img)
-		
-		# inicialmente, marcador desejado nao foi encontrado
-		center = None
-		
-		# desenha contornos + ids na imagem colorida
-		if ids is not None and len(ids) > 0:
-			cv2.aruco.drawDetectedMarkers(img, corners, ids)  # <- aqui desenha
-			# opcional: destacar apenas um id
-			for i, m_id in enumerate(ids.flatten()):
-				if m_id == aruco_id:
-					pts = corners[i][0].astype(int)
-					cx, cy = pts[:,0].mean(), pts[:,1].mean()
-					center = (cx, cy)
-					cv2.circle(img, (int(cx), int(cy)), 6, (0,255,0), -1)
-		
-		return img, center
-			
+				self.detect_fn = lambda frame: cv2.aruco.detectMarkers(frame, dictionary, parameters=parameters)
+
+		corners, ids, _ = self.detect_fn(img)
+		centers = {}
+		if ids is not None:
+			selected_corners = []
+			selected_ids = []
+			for i, marker_id in enumerate(ids.flatten()):
+				marker_id = int(marker_id)
+				if marker_id not in requested:
+					continue
+				pts = corners[i][0]
+				cx, cy = float(pts[:, 0].mean()), float(pts[:, 1].mean())
+				centers[marker_id] = (cx, cy)
+				selected_corners.append(corners[i])
+				selected_ids.append([marker_id])
+			if selected_ids:
+				import numpy as np
+				cv2.aruco.drawDetectedMarkers(img, selected_corners, np.array(selected_ids, dtype=np.int32))
+				for cx, cy in centers.values():
+					cv2.circle(img, (round(cx), round(cy)), 6, (0, 255, 0), -1)
+
+		return img, centers if multiple else centers.get(int(aruco_id))
+
+	########################################
+	# Gravacao de video e timestamps em thread separada.
+	########################################
+	def start_recording(self, directory, t0, fps=10.0):
+		"""Grava camera.mp4 e video_timestamps.csv na pasta do experimento.
+
+		t0 deve ser a mesma origem monotonic usada para car.t.
+		"""
+		if fps <= 0:
+			raise ValueError("FPS de gravacao deve ser positivo")
+		with self._record_lock:
+			if self._record_thread is not None:
+				raise RuntimeError("Gravacao ja iniciada")
+			os.makedirs(directory, exist_ok=True)
+			path = os.path.join(directory, "camera.mp4")
+			width, height = self.get_resolution()
+			writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), float(fps), (width, height))
+			if not writer.isOpened():
+				writer.release()
+				raise RuntimeError(f"Nao foi possivel abrir o arquivo de video: {path}")
+			self._record_writer = writer
+			self._record_queue = queue.Queue(maxsize=3)
+			self._record_fps = float(fps)
+			self._record_last_capture = float('-inf')
+			self._record_t0 = float(t0)
+			self._record_path = directory
+			self._record_error = None
+			self._record_dropped = 0
+			self._record_thread = threading.Thread(target=self._record_worker, daemon=True)
+			self._record_thread.start()
+		print(f"Camera: gravando video em {path} ({fps:g} FPS)", flush=True)
+
+	def record_frame(self, frame, capture_time=None):
+		"""Nao bloqueia: descarta quadros quando a gravacao nao acompanha."""
+		if frame is None:
+			return
+		if capture_time is None:
+			capture_time = time.monotonic()
+		with self._record_lock:
+			q = self._record_queue
+			if q is None:
+				return
+			if capture_time - self._record_last_capture < 1.0 / self._record_fps:
+				return
+			self._record_last_capture = capture_time
+			try:
+				q.put_nowait((frame.copy(), capture_time - self._record_t0))
+			except queue.Full:
+				self._record_dropped += 1
+
+	def _record_worker(self):
+		writer = self._record_writer
+		q = self._record_queue
+		filename = os.path.join(self._record_path, "video_timestamps.csv")
+		try:
+			with open(filename, "w", newline="", encoding="utf-8") as file:
+				csv_writer = csv.writer(file)
+				csv_writer.writerow(("frame", "t"))
+				index = 0
+				while True:
+					item = q.get()
+					if item is None:
+						break
+					frame, timestamp = item
+					writer.write(frame)
+					csv_writer.writerow((index, f"{timestamp:.6f}"))
+					index += 1
+			print(f"Camera: {index} quadros gravados; {self._record_dropped} descartados", flush=True)
+		except Exception as exc:
+			self._record_error = exc
+			print(f"ERRO ao gravar video: {exc}", flush=True)
+		finally:
+			writer.release()
+
+	def stop_recording(self):
+		"""Espera a fila esvaziar e fecha o MP4 antes de retornar."""
+		with self._record_lock:
+			thread = self._record_thread
+			q = self._record_queue
+			self._record_queue = None
+			self._record_thread = None
+		if thread is None:
+			return
+		# O trabalhador consome a fila; sentinela apos os quadros pendentes.
+		while thread.is_alive():
+			try:
+				q.put(None, timeout=0.2)
+				break
+			except queue.Full:
+				continue
+		thread.join()
+		if self._record_error is not None:
+			raise RuntimeError("Falha durante a gravacao do video") from self._record_error
+
+	########################################
+	# Publica um quadro para a interface (BGR ou escala de cinza).
+	# Chamar apos o processamento; nao realiza captura adicional.
+	def publish_frame(self, frame):
+		if frame is None:
+			return
+		with self._stream_lock:
+			now = time.monotonic()
+			if now - self._stream_last_publish < 1.0 / self._stream_fps:
+				return
+			self._stream_last_publish = now
+			scale = self._stream_scale
+		if scale != 1.0:
+			frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+		with self._stream_lock:
+			self._stream_frame = frame.copy()
+			self._stream_sequence += 1
+
+	########################################
+	# Inicia servidor HTTP em segundo plano, sem dependencias extras.
+	# /frame.png: compativel com PhotoImage do Tkinter
+	# /stream: MJPEG para navegadores, se desejado.
+	def start_stream(self, host="0.0.0.0", port=8080, fps=10, scale=0.5):
+		if fps <= 0 or not 0 < scale <= 1:
+			raise ValueError("fps deve ser positivo e scale deve estar entre 0 e 1")
+		with self._stream_lock:
+			self._stream_fps = float(fps)
+			self._stream_scale = float(scale)
+			self._stream_last_publish = 0.0
+		if self._stream_server is not None:
+			return
+		camera = self
+
+		class VideoHandler(BaseHTTPRequestHandler):
+			def log_message(self, format, *args):
+				pass
+
+			def do_GET(self):
+				path = urlsplit(self.path).path
+				if path not in ("/", "/frame.png", "/stream"):
+					self.send_error(404)
+					return
+				if path == "/":
+					body = b'<html><body><img src="/stream"></body></html>'
+					self.send_response(200)
+					self.send_header("Content-Type", "text/html; charset=utf-8")
+					self.send_header("Content-Length", str(len(body)))
+					self.end_headers()
+					self.wfile.write(body)
+					return
+				if path == "/frame.png":
+					with camera._stream_lock:
+						frame = None if camera._stream_frame is None else camera._stream_frame.copy()
+					if frame is None:
+						self.send_error(503, "Aguardando primeiro quadro")
+						return
+					ok, buf = cv2.imencode(".png", frame)
+					if not ok:
+						self.send_error(500)
+						return
+					body = buf.tobytes()
+					self.send_response(200)
+					self.send_header("Content-Type", "image/png")
+					self.send_header("Cache-Control", "no-store")
+					self.send_header("Content-Length", str(len(body)))
+					self.end_headers()
+					self.wfile.write(body)
+					return
+				try:
+					self.send_response(200)
+					self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+					self.send_header("Cache-Control", "no-store")
+					self.end_headers()
+					last_seq = -1
+					while camera._stream_server is not None:
+						with camera._stream_lock:
+							seq = camera._stream_sequence
+							frame = None if camera._stream_frame is None else camera._stream_frame.copy()
+						if frame is not None and seq != last_seq:
+							ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+							if ok:
+								body = buf.tobytes()
+								self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body + b"\r\n")
+								last_seq = seq
+						time.sleep(0.01)
+				except (BrokenPipeError, ConnectionResetError, OSError):
+					pass
+
+		class Server(ThreadingHTTPServer):
+			daemon_threads = True
+			allow_reuse_address = True
+
+		server = Server((host, int(port)), VideoHandler)
+		self._stream_server = server
+		self._stream_thread = threading.Thread(target=server.serve_forever, daemon=True)
+		self._stream_thread.start()
+		print(f"Camera: transmissao HTTP ativa na porta {port}", flush=True)
+
+	########################################
+	def stop_stream(self):
+		server = self._stream_server
+		if server is None:
+			return
+		self._stream_server = None
+		server.shutdown()
+		server.server_close()
+		if self._stream_thread is not None:
+			self._stream_thread.join(timeout=1.0)
+		self._stream_thread = None
+
 	########################################
 	# mostra imagem
 	def show(self, img, fps=None):
@@ -187,6 +496,9 @@ class Camera:
 	########################################
 	# fecha camera
 	def close(self):
+		self.stop_recording()
+		self.stop_yolo()
+		self.stop_stream()
 		if hasattr(self, 'cap') and self.cap is not None:
 			self.cap.release()
 		try:
@@ -201,20 +513,39 @@ def _camera_main():
 	import argparse
 	parser = argparse.ArgumentParser(description="Teste da camera FVA")
 	parser.add_argument("--remote", action="store_true", help="Publica imagens para a GUI sem abrir janela")
+	parser.add_argument("--stream", action="store_true", help="Transmite imagens por HTTP sem abrir janela")
+	parser.add_argument("--port", type=int, default=8081, help="Porta HTTP do teste (padrao 8081)")
+	parser.add_argument("--scale", type=float, default=0.5, help="Escala da imagem transmitida")
 	parser.add_argument("--prefix", default="/tmp/fva_camera", help="Prefixo dos arquivos temporarios")
 	parser.add_argument("--seconds", type=float, default=None)
-	parser.add_argument("--fps", type=float, default=3.0, help="FPS de publicacao no modo remoto")
-	parser.add_argument("--aruco", action="store_true", help="Detecta marcadores ArUco (ID 23)")
+	parser.add_argument("--fps", type=float, default=10.0, help="FPS da transmissao HTTP (padrao 10)")
+	parser.add_argument("--aruco", action="store_true", help="Detecta marcadores ArUco")
+	parser.add_argument("--normal", action="store_true", help="Exibe imagem sem deteccao")
+	parser.add_argument("--placas", action="store_true", help="Detecta placas com YOLO em thread")
+	parser.add_argument("--aruco-ids", type=int, nargs="+", default=None, metavar="ID", help="IDs ArUco a identificar, por exemplo: --aruco-ids 4 12 23")
 	args = parser.parse_args()
 	
-	seconds = args.seconds if args.seconds is not None else (60.0 if args.remote else 20.0)
+	seconds = args.seconds if args.seconds is not None else (60.0 if (args.remote or args.stream) else 20.0)
 	if seconds <= 0 or args.fps <= 0:
 		parser.error("--seconds e --fps devem ser positivos")
 
 	cam = Camera()
+	if args.stream:
+		cam.start_stream(port=args.port, fps=args.fps, scale=args.scale)
+		print(f"HTTP pronto: porta {args.port}, ate {args.fps:g} FPS, escala {args.scale:g}", flush=True)
 	print("Camera ok", flush=True)
 	print(f"Resolucao: {cam.get_resolution()}", flush=True)
 	print(f"FPS configurado: {cam.get_fps():.1f}", flush=True)
+	use_aruco = args.aruco or args.aruco_ids is not None
+	if sum((bool(use_aruco), args.normal, args.placas)) > 1:
+		parser.error("Escolha apenas um modo: --normal, --aruco ou --placas")
+	use_yolo = not use_aruco and not args.normal  # mantem YOLO como padrao anterior
+	if use_yolo:
+		cam.start_yolo()
+	if not (args.stream or args.remote):
+		cv2.namedWindow("Vehicle front camera", cv2.WINDOW_NORMAL)
+		cv2.resizeWindow("Vehicle front camera", 960, 720)
+		cv2.waitKey(1)
 	start = time.monotonic()
 	previous = start
 	count = 0
@@ -241,19 +572,20 @@ def _camera_main():
 				previous = now
 				count = 0
 
-			if args.remote and now < next_publish:
+			if args.remote and not args.stream and now < next_publish:
 				time.sleep(min(0.02, next_publish - now))
 				continue
 				
-			# Mantem o comportamento original de deteccao no teste local.
-			if args.aruco or not args.remote:
+			if use_aruco:
 				if not hasattr(cv2, "aruco"):
 					raise RuntimeError("OpenCV sem suporte a ArUco")
-				img, center = cam.detect_aruco(img)
-				if center is not None:
-					print(f"ArUco 23 detectado: {center}", flush=True)
+				img, detected = cam.detect_aruco(img, args.aruco_ids if args.aruco_ids is not None else [12, 23])
+			elif use_yolo:
+				img = cam.annotate_yolo(img)
 
-			if args.remote:
+			if args.stream:
+				cam.publish_frame(img)
+			elif args.remote:
 				# Arquivos publicados atomicamente; leitor SFTP nao ve imagens incompletas.
 				frame_path = args.prefix + ".png"
 				seq_path = args.prefix + ".seq"
@@ -280,7 +612,7 @@ def _camera_main():
 		pass
 	finally:
 		cam.close()
-	print(f"Teste concluido. Quadros publicados: {published}" if args.remote else "Teste concluido.", flush=True)
+	print(f"Teste concluido. Quadros publicados: {published}" if args.remote and not args.stream else "Teste concluido.", flush=True)
 
 ########################################
 if __name__ == "__main__":
