@@ -1638,19 +1638,39 @@ class RsyncGUI(tk.Tk):
 
 	########################################
 	def _sftp_upload_file(self, sftp, local_path, remote_path):
+		"""Envia apenas arquivos novos/alterados, preservando a data original."""
+		local_info = os.stat(local_path)
+		try:
+			remote_info = sftp.stat(remote_path)
+			if (stat.S_ISREG(remote_info.st_mode)
+					and remote_info.st_size == local_info.st_size
+					and abs(remote_info.st_mtime - local_info.st_mtime) < 2):
+				return False
+		except FileNotFoundError:
+			pass
 		self._sftp_mkdir_p(sftp, posixpath.dirname(remote_path))
 		sftp.put(local_path, remote_path)
+		sftp.utime(remote_path, (int(local_info.st_atime), int(local_info.st_mtime)))
+		return True
 
 	########################################
 	def _sftp_upload_directory_contents(self, sftp, local_dir, remote_dir):
+		"""Envia código, nunca os logs/experimentos gerados localmente."""
 		self._sftp_mkdir_p(sftp, remote_dir)
 		for root, dirs, files in os.walk(local_dir):
+			# Não percorrer experimentos, caches, ambientes virtuais ou builds.
+			dirs[:] = [d for d in dirs if d not in {
+				"logs", "experimentos", "__pycache__", ".git", ".venv",
+				"venv", "build", "dist"
+			}]
 			rel = os.path.relpath(root, local_dir)
 			remote_root = remote_dir if rel == "." else posixpath.join(remote_dir, *rel.split(os.sep))
 			self._sftp_mkdir_p(sftp, remote_root)
 			for dirname in dirs:
 				self._sftp_mkdir_p(sftp, posixpath.join(remote_root, dirname))
 			for filename in files:
+				if filename.endswith((".pyc", ".pyo")):
+					continue
 				self._sftp_upload_file(
 					sftp,
 					os.path.join(root, filename),
@@ -1990,14 +2010,32 @@ echo 'SUCESSO: firmware gravado no Arduino Nano.'"""
 	
 	########################################
 	def _sftp_download_directory_contents(self, sftp, remote_dir, local_dir):
+		"""Coleta incremental: evita baixar novamente vídeos e CSVs idênticos."""
 		os.makedirs(local_dir, exist_ok=True)
 		for entry in sftp.listdir_attr(remote_dir):
 			remote_path = posixpath.join(remote_dir, entry.filename)
 			local_path = os.path.join(local_dir, entry.filename)
 			if stat.S_ISDIR(entry.st_mode):
 				self._sftp_download_directory_contents(sftp, remote_path, local_path)
-			else:
-				sftp.get(remote_path, local_path)
+			elif stat.S_ISREG(entry.st_mode):
+				if os.path.isfile(local_path):
+					local_info = os.stat(local_path)
+					if (local_info.st_size == entry.st_size
+							and abs(local_info.st_mtime - entry.st_mtime) < 2):
+						continue
+				# Usa arquivo temporário para não considerar um download parcial como completo.
+				temp_path = local_path + ".fva-part"
+				try:
+					sftp.get(remote_path, temp_path)
+					if os.path.getsize(temp_path) != entry.st_size:
+						raise IOError(f"Transferência incompleta: {remote_path}")
+					os.utime(temp_path, (entry.st_atime, entry.st_mtime))
+					os.replace(temp_path, local_path)
+					self.ui(self.datalog_write, f"📄 {entry.filename} ({entry.st_size / 1048576:.1f} MB)")
+				except Exception:
+					if os.path.exists(temp_path):
+						os.remove(temp_path)
+					raise
 
 	########################################
 	def _collect_data(self, targets, local_base):
